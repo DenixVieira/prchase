@@ -4,7 +4,7 @@ import { UserPlus, UserMinus, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { UserNameTag } from "@/components/shared/UserNameTag";
 import { ticketsService } from "@/services/tickets.service";
@@ -77,7 +77,10 @@ export function FollowersCard({ ticket }: { ticket: Ticket }) {
                     className="flex w-full items-center gap-2 rounded-md p-2 text-sm hover:bg-accent"
                     onClick={() => { handleAddFollower(u.id); setFollowerDialogOpen(false); }}
                   >
-                    <Avatar className="h-6 w-6"><AvatarFallback className="text-[10px]">{initials(u.name)}</AvatarFallback></Avatar>
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={u.avatarDataUrl ?? undefined} alt={u.name} />
+                      <AvatarFallback className="text-[10px]">{initials(u.name)}</AvatarFallback>
+                    </Avatar>
                     {u.name}
                   </button>
                 ))}
@@ -105,7 +108,10 @@ export function FollowersCard({ ticket }: { ticket: Ticket }) {
             const canRemove = !ticket.isArchived && (follower.user.id === user?.id || can(PermissionKey.MOVE_TICKET));
             return (
               <div key={follower.id} className="flex items-center gap-1.5 rounded-full bg-muted px-2 py-1 text-xs">
-                <Avatar className="h-5 w-5"><AvatarFallback className="text-[9px]">{initials(follower.user.name)}</AvatarFallback></Avatar>
+                <Avatar className="h-5 w-5">
+                  <AvatarImage src={follower.user.avatarDataUrl ?? undefined} alt={follower.user.name} />
+                  <AvatarFallback className="text-[9px]">{initials(follower.user.name)}</AvatarFallback>
+                </Avatar>
                 <UserNameTag user={follower.user} tagClassName="bg-background/70" />
                 {canRemove && (
                   <button onClick={() => handleRemoveFollower(follower.user.id)} className="ml-0.5 rounded-full hover:bg-background/60">

@@ -120,6 +120,18 @@ export class AuthService {
     return this.toSafeUser(user);
   }
 
+  /** avatarDataUrl null = remove a foto atual. */
+  async changeAvatar(userId: string, avatarDataUrl: string | null, req: Request) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw ApiError.notFound("Usuário não encontrado");
+
+    user.avatarDataUrl = avatarDataUrl;
+    await this.userRepo.save(user);
+    await auditService.log({ userId, action: AuditAction.UPDATE, entity: "User", entityId: userId, req, metadata: { field: "avatar" } });
+
+    return this.me(userId);
+  }
+
   async me(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
@@ -140,6 +152,7 @@ export class AuthService {
       email: user.email,
       isAdmin: user.isAdmin,
       isActive: user.isActive,
+      avatarDataUrl: user.avatarDataUrl ?? null,
       notificationPreference: user.notificationPreference,
       mutedNotificationTypes: user.mutedNotificationTypes ?? [],
       department: user.department

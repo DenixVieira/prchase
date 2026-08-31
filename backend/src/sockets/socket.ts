@@ -47,11 +47,6 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
   return io;
 }
 
-export function getIO(): SocketIOServer {
-  if (!io) throw new Error("Socket.io não foi inicializado ainda");
-  return io;
-}
-
 export const SOCKET_EVENTS = {
   NOTIFICATION_NEW: "notification:new",
   TICKET_UPDATED: "ticket:updated",

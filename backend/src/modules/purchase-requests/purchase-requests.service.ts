@@ -1,7 +1,7 @@
 import { AppDataSource } from "../../config/data-source";
 import {
   PurchaseRequest, PurchaseRequestStatus, PurchaseApproval, ApprovalDecision,
-  Ticket, TicketStatus, HistoryAction, NotificationType, AuditAction, Department,
+  Ticket, HistoryAction, NotificationType, AuditAction, Department,
   DepartmentPermission, PermissionKey, User,
 } from "../../database/entities";
 import { ApiError } from "../../utils/ApiError";
@@ -14,6 +14,7 @@ import { auditService } from "../audit/audit.service";
 import { emitBroadcast, SOCKET_EVENTS } from "../../sockets/socket";
 import { Request } from "express";
 import { AuthenticatedUser } from "../../middlewares/types";
+import { boardsService } from "../boards/boards.service";
 
 export class PurchaseRequestsService {
   private repo = AppDataSource.getRepository(PurchaseRequest);
@@ -185,6 +186,7 @@ export class PurchaseRequestsService {
     // de abrir a transação (são só leituras, não precisam ser revertidas).
     const approverDepartment = await this.departmentRepo.findOneOrFail({ where: { id: user.departmentId } });
     const protocol = await generateSequentialNumber(AppDataSource, "tickets", "TK");
+    const initialColumn = await boardsService.getInitialColumn(approverDepartment.id);
 
     // Todo o estado de negócio (status da solicitação + registro de
     // aprovação + criação do ticket) é gravado em uma ÚNICA transação: se a
@@ -213,7 +215,7 @@ export class PurchaseRequestsService {
           title: `Compra: ${purchaseRequest.category} — ${purchaseRequest.supplier}`,
           description: purchaseRequest.description,
           purchaseRequestId: purchaseRequest.id,
-          status: TicketStatus.PENDING,
+          columnId: initialColumn.id,
           priority: purchaseRequest.priority,
           departmentId: approverDepartment.id,
           organizationId: purchaseRequest.organizationId ?? null,

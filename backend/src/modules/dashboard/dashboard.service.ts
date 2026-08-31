@@ -1,5 +1,5 @@
 import { AppDataSource } from "../../config/data-source";
-import { PurchaseRequest, Ticket, History, Notification, PurchaseRequestStatus, TicketStatus } from "../../database/entities";
+import { PurchaseRequest, Ticket, History, Notification, PurchaseRequestStatus } from "../../database/entities";
 import { AuthenticatedUser } from "../../middlewares/types";
 import { getAccessibleOrganizationIds, assertOrganizationAccess } from "../../utils/organizationAccess";
 import { SelectQueryBuilder } from "typeorm";
@@ -71,17 +71,23 @@ export class DashboardService {
     // Dashboard é só de Compras — com o Kanban agora genérico (Ticket pode
     // nascer de qualquer Tipo de Solicitação), sem esse filtro os cards
     // passariam a contar tickets de outros departamentos/tipos aqui também.
-    const tBase = () => this.applyFilters(this.ticketRepo.createQueryBuilder("t"), "t", user, filters).andWhere("t.purchaseRequestId IS NOT NULL");
+    // "Pendente"/"Em andamento"/"Resolvido"/"Cancelado" não são mais um enum
+    // fixo — são derivados das flags isInitial/isDone/isCancelled da coluna
+    // do board em que o ticket está (colunas configuráveis por departamento).
+    const tBase = () =>
+      this.applyFilters(this.ticketRepo.createQueryBuilder("t"), "t", user, filters)
+        .leftJoin("t.column", "bc")
+        .andWhere("t.purchaseRequestId IS NOT NULL");
 
     const [pendingRequests, approvedRequests, rejectedRequests, pendingTickets, inProgressTickets, resolvedTickets, cancelledTickets] =
       await Promise.all([
         prBase().andWhere("pr.status = :status", { status: PurchaseRequestStatus.PENDING_APPROVAL }).getCount(),
         prBase().andWhere("pr.status = :status", { status: PurchaseRequestStatus.APPROVED }).getCount(),
         prBase().andWhere("pr.status = :status", { status: PurchaseRequestStatus.REJECTED }).getCount(),
-        tBase().andWhere("t.status = :status", { status: TicketStatus.PENDING }).getCount(),
-        tBase().andWhere("t.status = :status", { status: TicketStatus.IN_PROGRESS }).getCount(),
-        tBase().andWhere("t.status = :status", { status: TicketStatus.RESOLVED }).getCount(),
-        tBase().andWhere("t.status = :status", { status: TicketStatus.CANCELLED }).getCount(),
+        tBase().andWhere("bc.isInitial = true").getCount(),
+        tBase().andWhere("bc.isInitial = false AND bc.isDone = false AND bc.isCancelled = false").getCount(),
+        tBase().andWhere("bc.isDone = true").getCount(),
+        tBase().andWhere("bc.isCancelled = true").getCount(),
       ]);
 
     return {

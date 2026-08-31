@@ -57,6 +57,18 @@ export class RequestType {
   isActive!: boolean;
 
   /**
+   * "Autosolicitação": tipo pensado pra alguém do PRÓPRIO departamento
+   * responsável pedir algo pra si (ex.: TI pedindo abono de ponto ao gestor
+   * de TI) — não um serviço oferecido a outros departamentos. Quando true,
+   * some do "Nova Solicitação" e é rejeitado no envio pra qualquer usuário
+   * fora de `departmentId`, e a restrição manual de `visibleDepartments`
+   * deixa de valer (não faz sentido as duas ao mesmo tempo — ver
+   * request-types.service.ts#isVisibleTo).
+   */
+  @Column({ name: "is_self_request_only", type: "boolean", default: false })
+  isSelfRequestOnly!: boolean;
+
+  /**
    * Organizações para as quais este tipo está disponível — só aparece em
    * "Nova Solicitação" e só pode ser enviado por usuário de departamento com
    * acesso a pelo menos uma delas. Lista vazia = tipo fica oculto/indisponível

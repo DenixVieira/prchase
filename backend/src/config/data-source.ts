@@ -6,7 +6,7 @@ import {
   PurchaseRequest, PurchaseApproval, Ticket, Comment, Attachment,
   Follower, Notification, History, AuditLog, Setting, Organization, Tag,
   Device, DeviceAttachment, DeviceMaintenance, DepartmentGroup,
-  RequestType, RequestField, RequestSubmission,
+  RequestType, RequestField, RequestSubmission, Board, BoardColumn,
 } from "../database/entities";
 
 export const AppDataSource = new DataSource({
@@ -23,7 +23,7 @@ export const AppDataSource = new DataSource({
     PurchaseRequest, PurchaseApproval, Ticket, Comment, Attachment,
     Follower, Notification, History, AuditLog, Setting, Organization, Tag,
     Device, DeviceAttachment, DeviceMaintenance, DepartmentGroup,
-    RequestType, RequestField, RequestSubmission,
+    RequestType, RequestField, RequestSubmission, Board, BoardColumn,
   ],
   migrations: [__dirname + "/../database/migrations/*.{ts,js}"],
   migrationsTableName: "typeorm_migrations",

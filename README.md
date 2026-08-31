@@ -1,6 +1,6 @@
 # Sistema de Gestão de Solicitações
 
-Sistema corporativo completo para gestão de **Solicitações de Compra** (com aprovação entre departamentos) e de **Solicitações internas genéricas** (Ordem de Serviço, RH, Financeiro etc.) cadastráveis pelo administrador via **Tipos de Solicitação** com formulário dinâmico próprio. Ambas convergem para o mesmo **Kanban de Tickets**, que passou a exibir apenas as solicitações destinadas ao departamento do usuário logado. Conta ainda com controle de acesso baseado em permissões (RBAC), notificações em tempo real (Socket.io + e-mail SMTP), histórico de auditoria e dashboard analítico (exclusivo de Compras).
+Sistema corporativo completo para gestão de **Solicitações de Compra** (com aprovação entre departamentos) e de **Solicitações internas genéricas** (Ordem de Serviço, RH, Financeiro etc.) cadastráveis pelo administrador via **Tipos de Solicitação** com formulário dinâmico próprio. Ambas convergem para o mesmo **Kanban de Tickets**, com um **board de colunas configurável por departamento** (cada departamento define seu próprio fluxo de trabalho), exibindo por padrão apenas as solicitações destinadas ao departamento do usuário logado. Conta ainda com controle de acesso baseado em permissões (RBAC), notificações em tempo real (Socket.io + e-mail SMTP), histórico de auditoria e dashboard analítico (exclusivo de Compras).
 
 ## Sumário
 
@@ -13,13 +13,14 @@ Sistema corporativo completo para gestão de **Solicitações de Compra** (com a
 7. [Variáveis de Ambiente](#variáveis-de-ambiente)
 8. [Usuários Padrão (Seed)](#usuários-padrão-seed)
 9. [Fluxo de Negócio](#fluxo-de-negócio)
-10. [Tipos de Solicitação (Formulários Dinâmicos)](#tipos-de-solicitação-formulários-dinâmicos)
-11. [RBAC — Permissões](#rbac--permissões)
-12. [API e Documentação Swagger](#api-e-documentação-swagger)
-13. [Uploads de Anexos](#uploads-de-anexos)
-14. [Notificações](#notificações)
-15. [Deploy em Produção](#deploy-em-produção)
-16. [Segurança](#segurança)
+10. [Board Configurável (Colunas do Kanban)](#board-configurável-colunas-do-kanban)
+11. [Tipos de Solicitação (Formulários Dinâmicos)](#tipos-de-solicitação-formulários-dinâmicos)
+12. [RBAC — Permissões](#rbac--permissões)
+13. [API e Documentação Swagger](#api-e-documentação-swagger)
+14. [Uploads de Anexos](#uploads-de-anexos)
+15. [Notificações](#notificações)
+16. [Deploy em Produção](#deploy-em-produção)
+17. [Segurança](#segurança)
 
 ---
 
@@ -69,8 +70,8 @@ purchase-system/
 │       │   └── seeds/         # Seed inicial (admin, departamentos, permissões)
 │       ├── middlewares/       # auth, RBAC, upload, error handler, rate limit
 │       ├── modules/           # auth, users, departments, purchase-requests,
-│       │                      # request-types, request-submissions, tickets,
-│       │                      # notifications, settings, audit, dashboard
+│       │                      # request-types, request-submissions, boards,
+│       │                      # tickets, notifications, settings, audit, dashboard
 │       ├── sockets/           # Socket.io
 │       ├── mailer/            # Nodemailer / SMTP
 │       └── utils/             # ApiError, ApiResponse, paginação, protocolo
@@ -108,6 +109,9 @@ erDiagram
     REQUEST_TYPES ||--o{ REQUEST_SUBMISSIONS : origina
     USERS ||--o{ REQUEST_SUBMISSIONS : envia
     REQUEST_SUBMISSIONS ||--o| TICKETS : gera
+    DEPARTMENTS ||--|| BOARDS : possui
+    BOARDS ||--o{ BOARD_COLUMNS : define
+    BOARD_COLUMNS ||--o{ TICKETS : contem
     TICKETS ||--o{ COMMENTS : possui
     TICKETS ||--o{ ATTACHMENTS : possui
     TICKETS ||--o{ FOLLOWERS : possui
@@ -118,9 +122,11 @@ erDiagram
 
 Todo `Ticket` nasce de **exatamente uma** das duas origens acima — `PurchaseRequest` (fluxo de Compra, com aprovação) ou `RequestSubmission` (demais tipos, sem aprovação) — nunca as duas. É por isso que as duas relações com `TICKETS` no diagrama são opcionais (`o|`), ao contrário da constraint antiga que exigia sempre uma Solicitação de Compra.
 
-Tabelas: `users`, `departments`, `permissions`, `department_permissions`, `refresh_tokens`, `purchase_requests`, `purchase_approvals`, `request_types`, `request_fields`, `request_submissions`, `tickets`, `comments`, `attachments`, `followers`, `notifications`, `history`, `audit_logs`, `settings`.
+O `status` do Ticket deixou de ser um enum fixo: cada `Ticket` aponta para uma `BoardColumn` (FK `column_id`, `NOT NULL`) do `Board` do seu próprio departamento — ver [Board Configurável](#board-configurável-colunas-do-kanban).
 
-A migration inicial (`backend/src/database/migrations/1700000000000-InitialSchema.ts`) cria a base do schema; migrations seguintes (`1700000000001` a `1700000000008`) evoluem o schema incrementalmente — a mais recente (`1700000000007-AddRequestTypes.ts` + `1700000000008-AddRequestSubmissionOrganization.ts`) introduz `request_types`/`request_fields`/`request_submissions` e relaxa `tickets.purchase_request_id` para aceitar `NULL`.
+Tabelas: `users`, `departments`, `permissions`, `department_permissions`, `refresh_tokens`, `purchase_requests`, `purchase_approvals`, `request_types`, `request_fields`, `request_submissions`, `boards`, `board_columns`, `tickets`, `comments`, `attachments`, `followers`, `notifications`, `history`, `audit_logs`, `settings`.
+
+A migration inicial (`backend/src/database/migrations/1700000000000-InitialSchema.ts`) cria a base do schema; migrations seguintes (`1700000000001` a `1700000000012`) evoluem o schema incrementalmente — destaques: `1700000000007-AddRequestTypes.ts` + `1700000000008-AddRequestSubmissionOrganization.ts` introduzem `request_types`/`request_fields`/`request_submissions` e relaxam `tickets.purchase_request_id` para aceitar `NULL`; `1700000000012-AddBoardsAndColumns.ts` introduz `boards`/`board_columns`, provisiona um board de 4 colunas padrão para cada departamento existente, remapeia cada `Ticket` da coluna `status` (enum) para a `BoardColumn` equivalente e remove a coluna/enum antigos.
 
 ## Como Executar (Docker)
 
@@ -201,16 +207,27 @@ O seed (`npm run seed` / `seed:dev`) cria só um usuário — os demais departam
 **Solicitação de Compra:**
 `Rascunho` → `Aguardando Aprovação` → `Aprovada` (cria Ticket automaticamente) **ou** `Reprovada` (motivo obrigatório) — ou `Cancelada` a qualquer momento antes da decisão.
 
-A aprovação só pode ser realizada por um usuário de **departamento diferente** do solicitante e que possua a permissão `APPROVE_PURCHASE_REQUEST`. Ao aprovar, o sistema cria automaticamente um **Ticket** vinculado, que entra na coluna **Pendente** do Kanban.
+A aprovação só pode ser realizada por um usuário de **departamento diferente** do solicitante e que possua a permissão `APPROVE_PURCHASE_REQUEST`. Ao aprovar, o sistema cria automaticamente um **Ticket** vinculado, que entra na **coluna inicial** do board do departamento aprovador.
 
-**Solicitação genérica** (Ordem de Serviço, RH, Financeiro etc. — ver seção seguinte): sem etapa de aprovação. Ao enviar o formulário em **Nova Solicitação**, o Ticket já nasce direto na coluna **Pendente** do Kanban do departamento responsável pelo tipo.
+**Solicitação genérica** (Ordem de Serviço, RH, Financeiro etc. — ver seção seguinte): sem etapa de aprovação. Ao enviar o formulário em **Nova Solicitação**, o Ticket já nasce direto na **coluna inicial** do board do departamento responsável pelo tipo.
 
 **Ticket (Kanban):**
-Colunas `Pendente → Em andamento → Resolvido/Cancelado`, com reabertura permitida — mesmas 4 colunas para qualquer origem (Compra ou solicitação genérica). Toda movimentação, comentário, anexo, troca de responsável/prioridade é registrada na **Timeline** (nunca apagada) e dispara notificações em tempo real (Socket.io) e por e-mail (conforme preferência do usuário).
+As colunas do Kanban são **configuráveis por departamento** (ver [Board Configurável](#board-configurável-colunas-do-kanban)) — por padrão, todo departamento nasce com `Pendente → Em andamento → Resolvido/Cancelado`, com movimentação livre entre quaisquer colunas (sem matriz de transição) e reabertura automática ao sair de uma coluna terminal. Toda movimentação, comentário, anexo, troca de responsável/prioridade é registrada na **Timeline** (nunca apagada) e dispara notificações em tempo real (Socket.io) e por e-mail (conforme preferência do usuário).
 
 Comentar em um ticket adiciona automaticamente o autor como **acompanhante**, que passa a receber notificações de toda a atividade do ticket.
 
-O Kanban e a tela de **Arquivados** exibem, por padrão, apenas os tickets do **departamento do usuário logado** (qualquer que seja a origem); administradores/usuários com a permissão `SYSTEM_ADMIN` continuam vendo todos os departamentos.
+O Kanban sempre exibe o board de **um departamento por vez** — por padrão o do próprio usuário; quem tem acesso irrestrito (`isAdmin`/`SYSTEM_ADMIN`) ganha um seletor para trocar de departamento/board. A tela de **Tabela** e a de **Arquivados** continuam cruzando departamentos livremente (mostram a coluna como um selo/badge por linha, não como grade), exibindo por padrão apenas os tickets do **departamento do usuário logado**; administradores/usuários com a permissão `SYSTEM_ADMIN` continuam vendo todos os departamentos.
+
+## Board Configurável (Colunas do Kanban)
+
+Cada **Departamento** possui exatamente um **Board** (criado automaticamente ao criar o departamento, seja pela tela ou pelo seed), com uma lista própria de **colunas** — nome, cor, ordem e três marcações independentes:
+
+- **Coluna inicial** (`isInitial`): onde todo ticket novo nasce (aprovação de Compra ou envio de solicitação dinâmica). Exatamente uma por board.
+- **Resolvido** (`isDone`) / **Cancelado** (`isCancelled`): colunas terminais — chegar em qualquer uma delas libera o botão **Arquivar** no ticket; sair de uma delas de volta para uma coluna não-terminal é tratado como **reabertura** (histórico e notificação próprios).
+
+Por padrão todo departamento nasce com 4 colunas (`Pendente → Em andamento → Resolvido/Cancelado`), mas o admin pode renomear, recolorir, reordenar, adicionar ou remover colunas em **Departamentos → Board** (permissão `MANAGE_DEPARTMENTS` — reaproveitada, sem permissão nova). A movimentação entre colunas é **livre** (qualquer coluna para qualquer outra, sem matriz de transição configurável) — mesma filosofia do Trello. Remover uma coluna que ainda tem ticket é bloqueado com uma mensagem clara (é preciso mover os tickets antes).
+
+O Kanban sempre mostra o board de **um departamento por vez** — o próprio, ou (para quem tem acesso irrestrito) o escolhido no seletor de departamento. A listagem de tickets por coluna é paginada individualmente (`?columnLimit=`, padrão 50, máx. 200), com "carregar mais" por coluna quando ela tem mais itens do que o teto carregado.
 
 ## Tipos de Solicitação (Formulários Dinâmicos)
 
@@ -280,7 +297,7 @@ Campos do tipo "Upload de arquivo" em solicitações dinâmicas seguem a mesma p
 - `helmet`, `cors` restrito por origem, `express-rate-limit` (global e reforçado em `/auth/login`). O limite geral é contado por usuário autenticado (extraído do JWT), não por IP — assim usuários atrás do mesmo NAT/proxy não competem pela mesma cota. Ajustável via `RATE_LIMIT_MAX` (padrão 600 requisições/15min por usuário) e `RATE_LIMIT_WINDOW_MS` no `.env`; aumente se tiver muitos usuários simultâneos e reinicie o backend (`docker compose restart backend`).
 - Validação de entrada em 100% dos endpoints com `class-validator`.
 - RBAC obrigatório no backend — o frontend nunca é a única camada de proteção.
-- Soft delete em `users`, `departments` e `purchase_requests` para preservar histórico e auditoria.
+- Soft delete em `users`, `departments`, `organizations`, `request_types` e `purchase_requests` para preservar histórico e auditoria. Tentar criar um registro com o mesmo nome/login/e-mail de um já excluído retorna uma mensagem clara (ex.: "Já existe um departamento excluído com este nome...") em vez de um erro genérico de constraint do banco.
 - Auditoria completa (`audit_logs`) de login/logout, CRUD, uploads, downloads, comentários, movimentações e mudanças de permissão, com IP e usuário.
 - Isolamento de rede: só o container `nginx` publica porta pro host (`FRONTEND_PORT`, padrão 8080). `postgres`, `backend` e `frontend` usam `expose` no `docker-compose.yml` — existem só dentro da rede Docker `purchase_network`, inacessíveis diretamente de fora da máquina/rede do host. Pra depurar o banco diretamente, use `docker compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB` em vez de conectar por um client externo na porta 5432.
 - Controle de acesso por objeto em `tickets`: além da permissão (RBAC) e do escopo por organização, toda operação sobre um ticket específico (ver, comentar, mover, anexar, arquivar...) confere se o usuário pertence ao **departamento do ticket**, é o **solicitante original** ou o **responsável atribuído** — evita que outro departamento (ou alguém com a permissão global mas fora do departamento) acesse um ticket por link direto/ID adivinhado, ainda que ele não apareça na listagem/Kanban dele. Administradores (`isAdmin`/`SYSTEM_ADMIN`) continuam com acesso irrestrito.

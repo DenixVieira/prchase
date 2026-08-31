@@ -5,7 +5,8 @@ import { authorize } from "../../middlewares/authorize";
 import { validateDto } from "../../utils/validate";
 import { upload, uploadInvoice } from "../../middlewares/upload";
 import { resolveTicketUploadContext, resolveTicketInvoiceUploadContext } from "../../middlewares/uploadContext";
-import { PermissionKey, TicketStatus } from "../../database/entities";
+import { PermissionKey, BoardColumn } from "../../database/entities";
+import { AppDataSource } from "../../config/data-source";
 import {
   UpdateTicketDto, MoveTicketDto, AssignTicketDto, ChangePriorityDto, CreateCommentDto, AddFollowerDto, AddTagDto,
 } from "./tickets.dto";
@@ -13,16 +14,22 @@ import {
 const router = Router();
 router.use(authenticate);
 
+const boardColumnRepo = AppDataSource.getRepository(BoardColumn);
+
 /**
- * Validação adicional: mover para RESOLVIDO exige RESOLVE_TICKET,
- * mover para CANCELADO exige CANCEL_TICKET, demais movimentações exigem MOVE_TICKET.
+ * Validação adicional: mover para uma coluna isDone exige RESOLVE_TICKET,
+ * mover para uma coluna isCancelled exige CANCEL_TICKET, demais
+ * movimentações exigem MOVE_TICKET. A coluna de destino é carregada aqui
+ * (e não reaproveitada no controller) só pra decidir a permissão — o
+ * service confere de novo antes de aplicar.
  */
-function authorizeMove(req: Request, res: Response, next: NextFunction) {
-  const status = req.body?.status as TicketStatus;
-  if (status === TicketStatus.RESOLVED) {
+async function authorizeMove(req: Request, res: Response, next: NextFunction) {
+  const columnId = req.body?.columnId as string | undefined;
+  const column = columnId ? await boardColumnRepo.findOne({ where: { id: columnId } }) : null;
+  if (column?.isDone) {
     return authorize(PermissionKey.RESOLVE_TICKET)(req, res, next);
   }
-  if (status === TicketStatus.CANCELLED) {
+  if (column?.isCancelled) {
     return authorize(PermissionKey.CANCEL_TICKET)(req, res, next);
   }
   return authorize(PermissionKey.MOVE_TICKET)(req, res, next);
@@ -61,6 +68,8 @@ function authorizeList(req: Request, res: Response, next: NextFunction) {
  */
 router.get("/", authorizeList, controller.list);
 router.get("/export/csv", authorizeList, controller.exportCsv);
+// Antes de "/:id" — senão "/search" seria interpretado como um ID de ticket.
+router.get("/search", authorize(PermissionKey.VIEW_TICKET), controller.quickSearch);
 router.get("/:id", authorize(PermissionKey.VIEW_TICKET), controller.findOne);
 router.get("/:id/history", authorize(PermissionKey.VIEW_TICKET), controller.getHistory);
 

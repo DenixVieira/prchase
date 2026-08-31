@@ -48,13 +48,11 @@ function makeUser(overrides: { organizationAccess?: { hasFullAccess: boolean; al
 describe("DashboardService filters", () => {
   let service: DashboardService;
   let prQb: ReturnType<typeof createQueryBuilderMock>;
-  let tQb: ReturnType<typeof createQueryBuilderMock>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     service = new DashboardService();
     prQb = createQueryBuilderMock();
-    tQb = createQueryBuilderMock();
     purchaseRequestRepoMock.createQueryBuilder.mockImplementation(() => createQueryBuilderMock());
     ticketRepoMock.createQueryBuilder.mockImplementation(() => createQueryBuilderMock());
   });

@@ -5,6 +5,7 @@ export interface UserOption {
   id: string;
   name: string;
   login: string;
+  avatarDataUrl?: string | null;
   department: { id: string; name: string } | null;
 }
 

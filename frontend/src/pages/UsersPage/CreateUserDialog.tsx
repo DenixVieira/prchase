@@ -13,12 +13,13 @@ import { usersService } from "@/services/users.service";
 import { departmentsService } from "@/services/departments.service";
 import { useToast } from "@/hooks/useToast";
 import { extractErrorMessage } from "@/services/api";
+import { PASSWORD_POLICY_REGEX, PASSWORD_POLICY_MESSAGE } from "@/lib/passwordPolicy";
 
 const schema = z.object({
   name: z.string().min(2, "Informe o nome"),
   login: z.string().min(3, "Informe o login"),
   email: z.string().email("E-mail inválido"),
-  password: z.string().min(6, "Senha deve ter ao menos 6 caracteres"),
+  password: z.string().regex(PASSWORD_POLICY_REGEX, PASSWORD_POLICY_MESSAGE),
   departmentId: z.string().uuid().optional(),
   isAdmin: z.boolean().optional(),
 });
@@ -55,7 +56,12 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
           <div className="space-y-1"><Label>Nome</Label><Input {...register("name")} />{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}</div>
           <div className="space-y-1"><Label>Login</Label><Input {...register("login")} />{errors.login && <p className="text-xs text-destructive">{errors.login.message}</p>}</div>
           <div className="space-y-1"><Label>E-mail</Label><Input {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
-          <div className="space-y-1"><Label>Senha</Label><PasswordInput {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
+          <div className="space-y-1">
+            <Label>Senha</Label>
+            <PasswordInput {...register("password")} />
+            <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_MESSAGE}</p>
+            {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+          </div>
           <div className="space-y-1">
             <Label>Departamento</Label>
             <Controller control={control} name="departmentId" render={({ field }) => (

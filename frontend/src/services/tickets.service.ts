@@ -5,13 +5,15 @@ export interface TicketListParams {
   page?: number;
   limit?: number;
   search?: string;
-  status?: string;
+  columnId?: string;
   priority?: string;
   departmentId?: string;
   organizationId?: string;
   requestTypeId?: string;
   assigneeId?: string;
   unassigned?: boolean;
+  /** Só tickets em que o usuário autenticado é o solicitante, cruzando departamentos. */
+  mine?: boolean;
   board?: boolean;
   /** Só vale com board=true — teto de itens carregados por coluna (padrão 50 no backend). */
   columnLimit?: number;
@@ -38,8 +40,8 @@ export const ticketsService = {
   async remove(id: string): Promise<void> {
     await api.delete(`/tickets/${id}`);
   },
-  async move(id: string, status: string): Promise<Ticket> {
-    const { data } = await api.post(`/tickets/${id}/move`, { status });
+  async move(id: string, columnId: string): Promise<Ticket> {
+    const { data } = await api.post(`/tickets/${id}/move`, { columnId });
     return data.data;
   },
   async assign(id: string, assigneeId: string): Promise<Ticket> {
@@ -121,5 +123,12 @@ export const ticketsService = {
   async exportCsv(params: TicketListParams): Promise<Blob> {
     const { data } = await api.get("/tickets/export/csv", { params, responseType: "blob" });
     return data;
+  },
+  // Busca rápida da barra de pesquisa do Navbar (protocolo/título) — o
+  // backend já restringe aos tickets que o usuário tem acesso (ver
+  // ticketsService.quickSearch).
+  async quickSearch(q: string): Promise<Ticket[]> {
+    const { data } = await api.get("/tickets/search", { params: { q } });
+    return data.data;
   },
 };

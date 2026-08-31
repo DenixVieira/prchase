@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { Eye, Paperclip } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDateOnly } from "@/lib/utils";
+import { formatDate, formatDateOnly } from "@/lib/utils";
 import { Attachment, RequestField, RequestFieldType, Ticket } from "@/types";
 
 interface RequestFieldsCardProps {
@@ -42,6 +42,9 @@ function FieldValue({
   switch (field.type) {
     case RequestFieldType.DATE:
       content = typeof value === "string" && value ? formatDateOnly(value) : "—";
+      break;
+    case RequestFieldType.DATETIME:
+      content = typeof value === "string" && value ? formatDate(value) : "—";
       break;
     case RequestFieldType.CHECKBOX:
       content = value ? "Sim" : "Não";

@@ -5,6 +5,7 @@ import { In, DeepPartial } from "typeorm";
 import { ApiError } from "../../utils/ApiError";
 import { getPaginationParams, buildPaginationMeta } from "../../utils/pagination";
 import { auditService } from "../audit/audit.service";
+import { boardsService } from "../boards/boards.service";
 
 type DepartmentUpsertDto = {
   name?: string;
@@ -19,7 +20,6 @@ type DepartmentUpsertDto = {
 
 export class DepartmentsService {
   private repo = AppDataSource.getRepository(Department);
-  private deptPermRepo = AppDataSource.getRepository(DepartmentPermission);
   private permissionRepo = AppDataSource.getRepository(Permission);
   private organizationRepo = AppDataSource.getRepository(Organization);
 
@@ -73,13 +73,23 @@ export class DepartmentsService {
   }
 
   async create(actorId: string, dto: DepartmentUpsertDto, req: Request) {
-    const existing = await this.repo.findOne({ where: { name: dto.name } });
+    // withDeleted: sem isso, um nome igual ao de um departamento já excluído
+    // (soft delete) passava batido aqui e só estourava na constraint UNIQUE
+    // do banco lá na hora do INSERT — erro genérico "Erro interno do
+    // servidor" em vez de uma mensagem que explica o que aconteceu.
+    const existing = await this.repo.findOne({ where: { name: dto.name }, withDeleted: true });
+    if (existing?.deletedAt) {
+      throw ApiError.conflict("Já existe um departamento excluído com este nome. Escolha outro nome ou peça a um administrador para restaurá-lo.");
+    }
     if (existing) throw ApiError.conflict("Já existe um departamento com este nome");
 
     const { allowedOrganizationIds, ...columns } = dto;
     const department = this.repo.create(columns as DeepPartial<Department>);
     await this.applyOrganizationAccess(department, dto);
     await this.repo.save(department);
+    // Todo departamento precisa nascer com um board (Ticket exige columnId
+    // válido pra existir) — ver boardsService.provisionBoard.
+    await boardsService.provisionBoard(department);
 
     await auditService.log({ userId: actorId, action: AuditAction.CREATE, entity: "Department", entityId: department.id, req });
     return this.findByIdOrFail(department.id);
@@ -119,12 +129,25 @@ export class DepartmentsService {
 
   async updatePermissions(actorId: string, id: string, permissionKeys: PermissionKey[], req: Request) {
     await this.findByIdOrFail(id);
-    await this.deptPermRepo.delete({ departmentId: id });
 
-    const permissions = await this.permissionRepo.find({ where: permissionKeys.map((key) => ({ key })) });
-    await this.deptPermRepo.save(
-      permissions.map((permission) => this.deptPermRepo.create({ departmentId: id, permissionId: permission.id, granted: true }))
-    );
+    // Substituição completa (delete + reinsert) precisa ser atômica: sem a
+    // transação, dois PUTs concorrentes para o mesmo departamento (ex.:
+    // duplo clique numa permissão, que dispara dois toggles antes do
+    // primeiro terminar) podiam intercalar — um DELETE de um request depois
+    // do INSERT do outro apagava tudo, ou os dois INSERTs duplicavam linhas.
+    // Isso é o que causava permissões "grudando" marcadas/desmarcadas
+    // incorretamente depois de cliques rápidos em sequência.
+    await AppDataSource.transaction(async (manager) => {
+      await manager.delete(DepartmentPermission, { departmentId: id });
+      const permissions = permissionKeys.length > 0
+        ? await manager.find(Permission, { where: { key: In(permissionKeys) } })
+        : [];
+      if (permissions.length > 0) {
+        await manager.save(
+          permissions.map((permission) => manager.create(DepartmentPermission, { departmentId: id, permissionId: permission.id, granted: true }))
+        );
+      }
+    });
 
     await auditService.log({ userId: actorId, action: AuditAction.PERMISSION_CHANGE, entity: "Department", entityId: id, req, metadata: { permissionKeys } });
     return this.findByIdOrFail(id);

@@ -34,6 +34,7 @@ export class UsersService {
       id: user.id,
       name: user.name,
       login: user.login,
+      avatarDataUrl: user.avatarDataUrl ?? null,
       department: user.department ? { id: user.department.id, name: user.department.name } : null,
     }));
   }
@@ -60,7 +61,15 @@ export class UsersService {
   }
 
   async create(actorId: string, dto: { name: string; login: string; email: string; password: string; departmentId?: string; isAdmin?: boolean }, req: Request) {
-    const existing = await this.repo.findOne({ where: [{ login: dto.login }, { email: dto.email }] });
+    // withDeleted: sem isso, um login/e-mail igual ao de um usuário já
+    // excluído (soft delete) passava batido aqui e só estourava na
+    // constraint UNIQUE do banco lá na hora do INSERT — erro genérico "Erro
+    // interno do servidor" em vez de uma mensagem que explica o que aconteceu.
+    const existing = await this.repo.findOne({ where: [{ login: dto.login }, { email: dto.email }], withDeleted: true });
+    if (existing?.deletedAt) {
+      const field = existing.login === dto.login ? "login" : "e-mail";
+      throw ApiError.conflict(`Já existe um usuário excluído com este ${field}. Escolha outro ${field} ou peça a um administrador para restaurá-lo.`);
+    }
     if (existing) throw ApiError.conflict("Já existe um usuário com este login ou e-mail");
 
     const user = await this.repo.save(

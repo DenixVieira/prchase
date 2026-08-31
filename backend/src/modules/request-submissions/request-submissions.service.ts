@@ -5,7 +5,7 @@ import { AppDataSource } from "../../config/data-source";
 import { logger } from "../../config/logger";
 import {
   RequestType, RequestTypeSourceKind, RequestField, RequestFieldType, RequestSubmission,
-  Ticket, TicketStatus, Priority, Attachment, HistoryAction, NotificationType, AuditAction,
+  Ticket, Priority, Attachment, HistoryAction, NotificationType, AuditAction,
 } from "../../database/entities";
 import { ApiError } from "../../utils/ApiError";
 import { env } from "../../config/env";
@@ -20,6 +20,7 @@ import { auditService } from "../audit/audit.service";
 import { emitBroadcast, SOCKET_EVENTS } from "../../sockets/socket";
 import { AuthenticatedUser } from "../../middlewares/types";
 import { ticketsService } from "../tickets/tickets.service";
+import { boardsService } from "../boards/boards.service";
 
 interface PendingAttachment {
   fieldKey: string;
@@ -49,14 +50,22 @@ export class RequestSubmissionsService {
     if (requestType.sourceKind !== RequestTypeSourceKind.DYNAMIC || !requestType.departmentId) {
       throw ApiError.badRequest("Este tipo de solicitação não aceita envio por aqui");
     }
-    // Restrição extra e opcional por departamento (além da organização,
-    // checada logo abaixo) — checagem autoritativa: repete no servidor o que
-    // a listagem/tela já deveriam ter impedido de chegar aqui. Admin/
-    // SYSTEM_ADMIN ignora essa restrição, mesmo bypass usado na visibilidade
-    // (request-types.service.ts).
-    const allowedDepartmentIds = (requestType.visibleDepartments ?? []).map((d) => d.id);
-    if (allowedDepartmentIds.length > 0 && !allowedDepartmentIds.includes(user.departmentId ?? "") && !(await hasSystemAdminAccess(user))) {
-      throw ApiError.badRequest("Este tipo de solicitação não está disponível para o seu departamento");
+    // Checagem autoritativa: repete no servidor o que a listagem/tela já
+    // deveriam ter impedido de chegar aqui. Admin/SYSTEM_ADMIN ignora as duas
+    // regras abaixo, mesmo bypass usado na visibilidade (request-types.service.ts).
+    const isPrivileged = await hasSystemAdminAccess(user);
+    if (requestType.isSelfRequestOnly) {
+      // Autosolicitação: só quem é do próprio departamento responsável pode
+      // enviar — ignora visibleDepartments (não se aplicam juntas).
+      if (user.departmentId !== requestType.departmentId && !isPrivileged) {
+        throw ApiError.badRequest("Este tipo de solicitação só pode ser enviado por alguém do departamento responsável");
+      }
+    } else {
+      // Restrição extra e opcional por departamento (além da organização, checada logo abaixo).
+      const allowedDepartmentIds = (requestType.visibleDepartments ?? []).map((d) => d.id);
+      if (allowedDepartmentIds.length > 0 && !allowedDepartmentIds.includes(user.departmentId ?? "") && !isPrivileged) {
+        throw ApiError.badRequest("Este tipo de solicitação não está disponível para o seu departamento");
+      }
     }
     if (!organizationId) throw ApiError.badRequest("Selecione a organização");
     // Mesma regra da Solicitação de Compra: só pode escolher entre as
@@ -82,6 +91,7 @@ export class RequestSubmissionsService {
     }
 
     const protocol = await generateSequentialNumber(AppDataSource, "tickets", "TK");
+    const initialColumn = await boardsService.getInitialColumn(requestType.departmentId!);
     const now = new Date();
     const uploadDir = path.join(process.cwd(), env.uploadsDir, "anexos tickets", String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, "0"), protocol);
 
@@ -114,7 +124,7 @@ export class RequestSubmissionsService {
           description,
           requestTypeId: requestType.id,
           requestSubmissionId: submission.id,
-          status: TicketStatus.PENDING,
+          columnId: initialColumn.id,
           priority: Priority.MEDIUM,
           departmentId: requestType.departmentId!,
           organizationId,
@@ -239,7 +249,8 @@ export class RequestSubmissionsService {
           summaryLines.push(`${field.label}: ${num}`);
           break;
         }
-        case RequestFieldType.DATE: {
+        case RequestFieldType.DATE:
+        case RequestFieldType.DATETIME: {
           if (typeof raw !== "string" || Number.isNaN(Date.parse(raw))) {
             throw ApiError.badRequest(`O campo "${field.label}" deve ser uma data válida`);
           }

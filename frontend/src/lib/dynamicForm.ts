@@ -30,7 +30,8 @@ function buildFieldSchema(field: RequestField): z.ZodTypeAny {
       const base = z.coerce.number({ invalid_type_error: `${field.label} deve ser numérico` });
       return required ? base : base.optional();
     }
-    case RequestFieldType.DATE: {
+    case RequestFieldType.DATE:
+    case RequestFieldType.DATETIME: {
       const base = z.string().refine((v) => !Number.isNaN(Date.parse(v)), `Informe uma data válida para ${labelLower(field.label)}`);
       return required ? base : z.string().optional().or(z.literal(""));
     }

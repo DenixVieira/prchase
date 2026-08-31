@@ -1,4 +1,4 @@
-import { IsEmail, IsString, Matches, MinLength } from "class-validator";
+import { IsEmail, IsString, Matches, MaxLength, MinLength, ValidateIf } from "class-validator";
 
 // Mínimo 8 caracteres, com maiúscula, minúscula, número e símbolo.
 const PASSWORD_POLICY = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
@@ -37,4 +37,15 @@ export class ChangeEmailDto {
 
   @IsEmail()
   newEmail!: string;
+}
+
+export class ChangeAvatarDto {
+  // null = remover a foto atual. String = nova foto — o front já manda
+  // redimensionada/comprimida; aqui só confere que é mesmo uma imagem
+  // pequena em data URL, não confia soltar qualquer string do cliente.
+  @ValidateIf((o) => o.avatarDataUrl !== null)
+  @IsString()
+  @MaxLength(300_000, { message: "Imagem muito grande" })
+  @Matches(/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+=*$/, { message: "Formato de imagem inválido" })
+  avatarDataUrl!: string | null;
 }

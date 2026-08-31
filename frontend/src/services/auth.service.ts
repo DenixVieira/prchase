@@ -26,4 +26,9 @@ export const authService = {
     const { data } = await api.post("/auth/change-email", { currentPassword, newEmail });
     return data.data;
   },
+  /** avatarDataUrl null remove a foto atual. */
+  async changeAvatar(avatarDataUrl: string | null): Promise<AuthUser> {
+    const { data } = await api.post("/auth/change-avatar", { avatarDataUrl });
+    return data.data;
+  },
 };

@@ -16,6 +16,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.TICKET_CANCELLED]: "Ticket cancelado",
   [NotificationType.TICKET_REOPENED]: "Ticket reaberto",
   [NotificationType.NEW_FOLLOWER]: "Adicionado como acompanhante",
+  [NotificationType.MENTIONED_IN_COMMENT]: "Mencionado em comentário",
   [NotificationType.REQUEST_APPROVED]: "Solicitação aprovada",
   [NotificationType.REQUEST_REJECTED]: "Solicitação reprovada",
   [NotificationType.REQUEST_PENDING_APPROVAL]: "Solicitação aguardando aprovação",

@@ -51,7 +51,14 @@ export class OrganizationsService {
   }
 
   async create(actorId: string, dto: { name: string; description?: string }, req: Request) {
-    const existing = await this.repo.findOne({ where: { name: dto.name } });
+    // withDeleted: sem isso, um nome igual ao de uma organização já excluída
+    // (soft delete) passava batido aqui e só estourava na constraint UNIQUE
+    // do banco lá na hora do INSERT — erro genérico "Erro interno do
+    // servidor" em vez de uma mensagem que explica o que aconteceu.
+    const existing = await this.repo.findOne({ where: { name: dto.name }, withDeleted: true });
+    if (existing?.deletedAt) {
+      throw ApiError.conflict("Já existe uma organização excluída com este nome. Escolha outro nome ou peça a um administrador para restaurá-la.");
+    }
     if (existing) throw ApiError.conflict("Já existe uma organização com este nome");
 
     const organization = await this.repo.save(this.repo.create(dto));

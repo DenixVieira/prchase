@@ -12,12 +12,14 @@ import { GroupSection } from "./GroupSection";
 import { GroupsDialog } from "./GroupsDialog";
 import { PermissionsDialog } from "./PermissionsDialog";
 import { OrganizationsDialog } from "./OrganizationsDialog";
+import { BoardColumnsDialog } from "./BoardColumnsDialog";
 
 export default function DepartmentsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [permissionsTarget, setPermissionsTarget] = useState<Department | null>(null);
   const [organizationsTarget, setOrganizationsTarget] = useState<Department | null>(null);
+  const [boardTarget, setBoardTarget] = useState<Department | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: ["departments", "page"], queryFn: () => departmentsService.list({ limit: 100 }) });
   const { data: catalog } = useQuery({ queryKey: ["departments", "permission-catalog"], queryFn: () => departmentsService.listAllPermissions() });
@@ -62,6 +64,7 @@ export default function DepartmentsPage() {
             departments={section.departments}
             onManagePermissions={setPermissionsTarget}
             onManageOrganizations={setOrganizationsTarget}
+            onManageBoard={setBoardTarget}
           />
         ))}
       </div>
@@ -78,6 +81,10 @@ export default function DepartmentsPage() {
         department={organizationsTarget}
         organizations={organizations}
         onOpenChange={(open) => !open && setOrganizationsTarget(null)}
+      />
+      <BoardColumnsDialog
+        department={boardTarget}
+        onOpenChange={(open) => !open && setBoardTarget(null)}
       />
     </div>
   );

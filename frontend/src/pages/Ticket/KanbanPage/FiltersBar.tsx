@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Organization, RequestType } from "@/types";
+import { Department, Organization, RequestType } from "@/types";
 
 interface FiltersBarProps {
   view: "board" | "table";
@@ -26,6 +26,10 @@ interface FiltersBarProps {
   assigneeFilter: "all" | "unassigned" | "me";
   onAssigneeFilterChange: (value: "all" | "unassigned" | "me") => void;
   onExport: () => void;
+  /** Seletor de departamento do board — só faz sentido na visão Kanban (Tabela cruza departamentos). */
+  boardDepartmentId?: string;
+  onBoardDepartmentIdChange?: (value: string) => void;
+  boardDepartments?: Department[];
 }
 
 export function FiltersBar({
@@ -38,11 +42,22 @@ export function FiltersBar({
   endDate, onEndDateChange,
   assigneeFilter, onAssigneeFilterChange,
   onExport,
+  boardDepartmentId, onBoardDepartmentIdChange, boardDepartments,
 }: FiltersBarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {view === "board" && (
         <Input placeholder="Pesquisar protocolo ou título..." className="w-64" value={search} onChange={(e) => onSearchChange(e.target.value)} />
+      )}
+      {view === "board" && (boardDepartments ?? []).length > 0 && (
+        <Select value={boardDepartmentId} onValueChange={onBoardDepartmentIdChange}>
+          <SelectTrigger className="w-44"><SelectValue placeholder="Departamento" /></SelectTrigger>
+          <SelectContent>
+            {(boardDepartments ?? []).map((department) => (
+              <SelectItem key={department.id} value={department.id}>{department.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       <Select value={priority} onValueChange={onPriorityChange}>
         <SelectTrigger className="w-36"><SelectValue placeholder="Prioridade" /></SelectTrigger>

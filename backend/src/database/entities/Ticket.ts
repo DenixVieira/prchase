@@ -12,7 +12,8 @@ import { Comment } from "./Comment";
 import { Attachment } from "./Attachment";
 import { Follower } from "./Follower";
 import { Tag } from "./Tag";
-import { TicketStatus, Priority } from "./enums";
+import { BoardColumn } from "./BoardColumn";
+import { Priority } from "./enums";
 
 @Entity("tickets")
 export class Ticket {
@@ -61,9 +62,19 @@ export class Ticket {
   @Column({ name: "request_type_id", type: "uuid", nullable: true })
   requestTypeId?: string | null;
 
+  /**
+   * Coluna do board em que o ticket está — substitui o antigo enum fixo de
+   * status. Sempre uma coluna do board do PRÓPRIO departamento do ticket
+   * (ver Ticket.departmentId); mover pra coluna de outro board não é
+   * permitido (checado em tickets.service.ts::move()).
+   */
+  @ManyToOne(() => BoardColumn, { eager: true })
+  @JoinColumn({ name: "column_id" })
+  column!: BoardColumn;
+
   @Index()
-  @Column({ type: "enum", enum: TicketStatus, default: TicketStatus.PENDING })
-  status!: TicketStatus;
+  @Column({ name: "column_id", type: "uuid" })
+  columnId!: string;
 
   @Column({ type: "enum", enum: Priority, default: Priority.MEDIUM })
   priority!: Priority;

@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { PurchaseRequestStatus, TicketStatus } from "@/types";
+import { PurchaseRequestStatus, BoardColumn } from "@/types";
 
 const PURCHASE_REQUEST_LABELS: Record<PurchaseRequestStatus, { label: string; variant: "secondary" | "warning" | "success" | "destructive" }> = {
   [PurchaseRequestStatus.DRAFT]: { label: "Rascunho", variant: "secondary" },
@@ -9,19 +9,25 @@ const PURCHASE_REQUEST_LABELS: Record<PurchaseRequestStatus, { label: string; va
   [PurchaseRequestStatus.CANCELLED]: { label: "Cancelada", variant: "secondary" },
 };
 
-const TICKET_LABELS: Record<TicketStatus, { label: string; variant: "secondary" | "warning" | "success" | "destructive" }> = {
-  [TicketStatus.PENDING]: { label: "Pendente", variant: "secondary" },
-  [TicketStatus.IN_PROGRESS]: { label: "Em andamento", variant: "warning" },
-  [TicketStatus.RESOLVED]: { label: "Resolvido", variant: "success" },
-  [TicketStatus.CANCELLED]: { label: "Cancelado", variant: "destructive" },
-};
-
 export function PurchaseRequestStatusBadge({ status }: { status: PurchaseRequestStatus }) {
   const config = PURCHASE_REQUEST_LABELS[status];
   return <Badge variant={config.variant}>{config.label}</Badge>;
 }
 
-export function TicketStatusBadge({ status }: { status: TicketStatus }) {
-  const config = TICKET_LABELS[status];
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+/**
+ * Substitui o antigo TicketStatusBadge (mapa fixo por enum): a coluna do
+ * board agora é configurável por departamento, então nome/cor vêm direto da
+ * BoardColumn do próprio ticket, sem lista fixa de status.
+ */
+export function BoardColumnBadge({ column }: { column: BoardColumn | null | undefined }) {
+  if (!column) return <Badge variant="secondary">—</Badge>;
+  return (
+    <Badge
+      variant="outline"
+      className="border-transparent text-white"
+      style={{ backgroundColor: column.color }}
+    >
+      {column.name}
+    </Badge>
+  );
 }

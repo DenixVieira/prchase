@@ -6,6 +6,7 @@ import { usersService } from "@/services/users.service";
 import { useToast } from "@/hooks/useToast";
 import { extractErrorMessage } from "@/services/api";
 import { User } from "@/types";
+import { PASSWORD_POLICY_REGEX, PASSWORD_POLICY_MESSAGE } from "@/lib/passwordPolicy";
 
 interface ResetPasswordDialogProps {
   user: User | null;
@@ -33,8 +34,9 @@ export function ResetPasswordDialog({ user, onOpenChange }: ResetPasswordDialogP
       <DialogContent>
         <DialogHeader><DialogTitle>Redefinir senha de {user?.name}</DialogTitle></DialogHeader>
         <PasswordInput placeholder="Nova senha" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+        <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_MESSAGE}</p>
         <DialogFooter>
-          <Button disabled={newPassword.length < 6} onClick={handleResetPassword}>Redefinir</Button>
+          <Button disabled={!PASSWORD_POLICY_REGEX.test(newPassword)} onClick={handleResetPassword}>Redefinir</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

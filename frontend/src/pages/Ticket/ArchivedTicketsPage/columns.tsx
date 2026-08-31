@@ -1,6 +1,6 @@
 import { ArchiveRestore } from "lucide-react";
 import { DataTableColumn } from "@/components/shared/DataTable";
-import { TicketStatusBadge } from "@/components/shared/StatusBadge";
+import { BoardColumnBadge } from "@/components/shared/StatusBadge";
 import { PriorityBadge } from "@/components/shared/PriorityBadge";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ export function buildColumns(onUnarchive: (id: string) => void): DataTableColumn
     { key: "requestType", header: "Tipo", render: (row) => row.requestType?.name ?? "Solicitação de Compra" },
     { key: "department", header: "Departamento", render: (row) => row.department?.name },
     { key: "organization", header: "Organização", render: (row) => row.organization?.name ?? "—" },
-    { key: "status", header: "Status", sortKey: "status", render: (row) => <TicketStatusBadge status={row.status} /> },
+    { key: "column", header: "Coluna", render: (row) => <BoardColumnBadge column={row.column} /> },
     { key: "priority", header: "Prioridade", sortKey: "priority", render: (row) => <PriorityBadge priority={row.priority} /> },
     { key: "archivedAt", header: "Arquivado em", sortKey: "archivedAt", render: (row) => (row.archivedAt ? formatDate(row.archivedAt) : "—") },
     {

@@ -1,5 +1,5 @@
 import { IsString, IsUUID, IsEnum, IsOptional, MinLength, MaxLength } from "class-validator";
-import { TicketStatus, Priority } from "../../database/entities";
+import { Priority } from "../../database/entities";
 
 export class UpdateTicketDto {
   @IsOptional() @IsString() @MaxLength(200) title?: string;
@@ -7,8 +7,8 @@ export class UpdateTicketDto {
 }
 
 export class MoveTicketDto {
-  @IsEnum(TicketStatus)
-  status!: TicketStatus;
+  @IsUUID()
+  columnId!: string;
 }
 
 export class AssignTicketDto {

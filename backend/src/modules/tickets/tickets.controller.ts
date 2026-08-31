@@ -20,6 +20,13 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, items, 200, meta);
 });
 
+// Busca rápida da barra de pesquisa do Navbar (protocolo/título) — ver
+// ticketsService.quickSearch para a regra de acesso objeto-a-objeto.
+export const quickSearch = asyncHandler(async (req: Request, res: Response) => {
+  const results = await ticketsService.quickSearch(req.user!, String(req.query.q ?? ""));
+  sendSuccess(res, results);
+});
+
 export const findOne = asyncHandler(async (req: Request, res: Response) => {
   const result = await ticketsService.findByIdOrFail(req.params.id, req.user!);
   sendSuccess(res, result);
@@ -36,7 +43,7 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const move = asyncHandler(async (req: Request, res: Response) => {
-  const result = await ticketsService.move(req.user!, req.params.id, req.body.status, req);
+  const result = await ticketsService.move(req.user!, req.params.id, req.body.columnId, req);
   sendSuccess(res, result);
 });
 
@@ -247,7 +254,7 @@ export const exportCsv = asyncHandler(async (req: Request, res: Response) => {
   const { items } = await ticketsService.list(req, req.user!);
   const header = "Protocolo;Titulo;Status;Prioridade;Responsavel;Departamento;Solicitante;Data\n";
   const rows = items.map((t) =>
-    [t.protocol, t.title, t.status, t.priority, t.assignee?.name ?? "", t.department?.name ?? "", t.requester?.name ?? "", t.createdAt.toISOString()].join(";")
+    [t.protocol, t.title, t.column?.name ?? "", t.priority, t.assignee?.name ?? "", t.department?.name ?? "", t.requester?.name ?? "", t.createdAt.toISOString()].join(";")
   );
   const csv = header + rows.join("\n");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");

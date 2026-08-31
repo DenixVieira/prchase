@@ -51,6 +51,15 @@ export class User {
   @Column({ type: "text", array: true, default: () => "'{}'" })
   mutedNotificationTypes!: NotificationType[];
 
+  /**
+   * Foto de perfil, como data URL (ex.: "data:image/jpeg;base64,..."). O
+   * front já envia redimensionada/comprimida (pequena, ver changeAvatar no
+   * auth.service.ts, que também valida tamanho no servidor) — por isso dá
+   * pra guardar direto na coluna em vez de arquivo em disco.
+   */
+  @Column({ name: "avatar_data_url", type: "text", nullable: true })
+  avatarDataUrl?: string | null;
+
   @Column({ type: "timestamptz", nullable: true })
   lastLoginAt?: Date | null;
 

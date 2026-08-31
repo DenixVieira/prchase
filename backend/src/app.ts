@@ -24,6 +24,7 @@ import devicesRoutes from "./modules/devices/devices.routes";
 import departmentGroupsRoutes from "./modules/department-groups/department-groups.routes";
 import requestTypesRoutes from "./modules/request-types/request-types.routes";
 import requestSubmissionsRoutes from "./modules/request-submissions/request-submissions.routes";
+import boardsRoutes from "./modules/boards/boards.routes";
 
 export function createApp(): Application {
   const app = express();
@@ -77,6 +78,7 @@ export function createApp(): Application {
   app.use("/api/department-groups", departmentGroupsRoutes);
   app.use("/api/request-types", requestTypesRoutes);
   app.use("/api/request-submissions", requestSubmissionsRoutes);
+  app.use("/api/boards", boardsRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

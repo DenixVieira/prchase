@@ -38,6 +38,7 @@ export enum RequestFieldType {
   TEXTAREA = "TEXTAREA",
   NUMBER = "NUMBER",
   DATE = "DATE",
+  DATETIME = "DATETIME",
   SELECT = "SELECT",
   MULTISELECT = "MULTISELECT",
   CHECKBOX = "CHECKBOX",
@@ -49,13 +50,6 @@ export enum PurchaseRequestStatus {
   PENDING_APPROVAL = "PENDING_APPROVAL",
   APPROVED = "APPROVED",
   REJECTED = "REJECTED",
-  CANCELLED = "CANCELLED",
-}
-
-export enum TicketStatus {
-  PENDING = "PENDING",
-  IN_PROGRESS = "IN_PROGRESS",
-  RESOLVED = "RESOLVED",
   CANCELLED = "CANCELLED",
 }
 
@@ -82,6 +76,7 @@ export enum NotificationType {
   TICKET_CANCELLED = "TICKET_CANCELLED",
   TICKET_REOPENED = "TICKET_REOPENED",
   NEW_FOLLOWER = "NEW_FOLLOWER",
+  MENTIONED_IN_COMMENT = "MENTIONED_IN_COMMENT",
   REQUEST_APPROVED = "REQUEST_APPROVED",
   REQUEST_REJECTED = "REQUEST_REJECTED",
   REQUEST_PENDING_APPROVAL = "REQUEST_PENDING_APPROVAL",
@@ -131,6 +126,8 @@ export interface User {
   departmentId?: string | null;
   isActive: boolean;
   isAdmin: boolean;
+  /** Foto de perfil como data URL (ex.: "data:image/jpeg;base64,..."), já pequena/comprimida. null = sem foto. */
+  avatarDataUrl?: string | null;
   notificationPreference: NotificationPreference;
   lastLoginAt?: string | null;
   createdAt?: string;
@@ -143,6 +140,7 @@ export interface AuthUser {
   email: string;
   isAdmin: boolean;
   isActive: boolean;
+  avatarDataUrl?: string | null;
   notificationPreference: NotificationPreference;
   mutedNotificationTypes: NotificationType[];
   department: {
@@ -220,6 +218,8 @@ export interface RequestType {
   sourceKind: RequestTypeSourceKind;
   isBuiltIn: boolean;
   isActive: boolean;
+  /** Autosolicitação: só quem é do próprio departamento responsável enxerga/envia. Ignora visibleDepartments quando true. */
+  isSelfRequestOnly: boolean;
   /** Organizações para as quais este tipo está disponível — vazio = oculto até o admin configurar. Ignorado pelo card semente de Compra. */
   organizations?: Organization[];
   /** Restrição extra opcional, por cima da organização — vazio = sem restrição extra (todo departamento com acesso à organização vê). Ignorado pelo card semente de Compra. */
@@ -241,6 +241,27 @@ export interface RequestSubmission {
   organizationId?: string | null;
   data: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface BoardColumn {
+  id: string;
+  boardId: string;
+  name: string;
+  color: string;
+  order: number;
+  /** Onde todo ticket novo nasce — exatamente 1 por board. */
+  isInitial: boolean;
+  /** Equivalente a "Resolvido" — libera arquivar. */
+  isDone: boolean;
+  /** Equivalente a "Cancelado" — libera arquivar. */
+  isCancelled: boolean;
+}
+
+export interface Board {
+  id: string;
+  departmentId: string;
+  name: string;
+  columns: BoardColumn[];
 }
 
 export interface PurchaseApproval {
@@ -284,7 +305,8 @@ export interface Ticket {
   requestType?: RequestType | null;
   requestSubmissionId?: string | null;
   requestSubmission?: RequestSubmission | null;
-  status: TicketStatus;
+  columnId: string;
+  column?: BoardColumn | null;
   priority: Priority;
   assignee?: User | null;
   assigneeId?: string | null;

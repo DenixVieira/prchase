@@ -22,4 +22,6 @@ export * from "./DepartmentGroup";
 export * from "./RequestType";
 export * from "./RequestField";
 export * from "./RequestSubmission";
+export * from "./Board";
+export * from "./BoardColumn";
 export * from "./enums";

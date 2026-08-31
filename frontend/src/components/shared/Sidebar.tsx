@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { ReactNode, useEffect, useState } from "react";
 import {
-  LayoutDashboard, FileText, Trello, Archive, Users, Building2, Settings, ShieldCheck, ChevronsLeft, ChevronsRight, ChevronDown, ShoppingCart, Globe2, X, FileArchive, HardDrive, PlusCircle, ListChecks,
+  LayoutDashboard, FileText, Trello, Archive, Users, Building2, Settings, ShieldCheck, ChevronsLeft, ChevronsRight, ChevronDown, ShoppingCart, Globe2, X, FileArchive, HardDrive, PlusCircle, ListChecks, ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePermission } from "@/hooks/usePermission";
@@ -33,6 +33,10 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Solicitações",
     items: [
       { label: "Nova Solicitação", to: "/requests/new", icon: PlusCircle, permissions: [PermissionKey.CREATE_REQUEST, PermissionKey.CREATE_PURCHASE_REQUEST] },
+      // Acompanhamento pessoal: tickets abertos a partir de solicitações do
+      // próprio usuário, cruzando departamentos — diferente do Kanban abaixo,
+      // que é escopado ao departamento dele.
+      { label: "Meus Tickets", to: "/my-tickets", icon: ClipboardList, permissions: [PermissionKey.VIEW_TICKET] },
       { label: "Kanban", to: "/tickets", icon: Trello, permissions: [PermissionKey.VIEW_TICKET] },
       { label: "Arquivados", to: "/tickets/archived", icon: Archive, permissions: [PermissionKey.VIEW_ARCHIVED_TICKETS] },
     ],

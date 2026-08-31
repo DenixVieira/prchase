@@ -13,6 +13,7 @@ const RequestTypePickerPage = lazy(() => import("@/pages/RequestType/RequestType
 const DynamicRequestFormPage = lazy(() => import("@/pages/RequestType/DynamicRequestFormPage"));
 const RequestTypesPage = lazy(() => import("@/pages/RequestTypesPage"));
 const KanbanPage = lazy(() => import("@/pages/Ticket/KanbanPage"));
+const MyTicketsPage = lazy(() => import("@/pages/Ticket/MyTicketsPage"));
 const ArchivedTicketsPage = lazy(() => import("@/pages/Ticket/ArchivedTicketsPage"));
 const TicketDetailPage = lazy(() => import("@/pages/Ticket/TicketDetailPage"));
 const UsersPage = lazy(() => import("@/pages/UsersPage"));
@@ -48,6 +49,7 @@ const routes: RouteObject[] = [
           { path: "/requests/new/:requestTypeId", element: <DynamicRequestFormPage /> },
           { path: "/admin/request-types", element: <RequestTypesPage /> },
           { path: "/tickets", element: <KanbanPage /> },
+          { path: "/my-tickets", element: <MyTicketsPage /> },
           { path: "/tickets/archived", element: <ArchivedTicketsPage /> },
           { path: "/tickets/:id", element: <TicketDetailPage /> },
           { path: "/users", element: <UsersPage /> },

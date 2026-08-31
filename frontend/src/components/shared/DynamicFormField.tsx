@@ -55,6 +55,9 @@ function FieldControl({
     case RequestFieldType.DATE:
       return <Input id={field.key} type="date" value={(rhf.value as string) ?? ""} onChange={(e) => rhf.onChange(e.target.value)} />;
 
+    case RequestFieldType.DATETIME:
+      return <Input id={field.key} type="datetime-local" value={(rhf.value as string) ?? ""} onChange={(e) => rhf.onChange(e.target.value)} />;
+
     case RequestFieldType.CHECKBOX:
       return (
         <div className="flex items-center gap-2 pt-1">

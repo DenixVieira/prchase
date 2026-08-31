@@ -6,6 +6,7 @@ export interface CreateRequestTypePayload {
   description?: string;
   departmentId: string;
   icon?: string;
+  isSelfRequestOnly?: boolean;
   organizationIds?: string[];
   visibleDepartmentIds?: string[];
 }
@@ -16,6 +17,7 @@ export interface UpdateRequestTypePayload {
   departmentId?: string;
   icon?: string;
   isActive?: boolean;
+  isSelfRequestOnly?: boolean;
   organizationIds?: string[];
   visibleDepartmentIds?: string[];
 }

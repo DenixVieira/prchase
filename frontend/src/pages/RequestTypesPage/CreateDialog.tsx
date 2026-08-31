@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { requestTypesService } from "@/services/requestTypes.service";
 import { departmentsService } from "@/services/departments.service";
@@ -22,6 +23,7 @@ const schema = z.object({
   description: z.string().optional(),
   departmentId: z.string().uuid("Selecione o departamento responsável"),
   icon: z.string().optional(),
+  isSelfRequestOnly: z.boolean(),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -33,7 +35,11 @@ interface CreateDialogProps {
 export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { register, control, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<FormData>({ resolver: zodResolver(schema) });
+  const { register, control, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { isSelfRequestOnly: false },
+  });
+  const isSelfRequestOnly = watch("isSelfRequestOnly");
   const [organizationIds, setOrganizationIds] = useState<string[]>([]);
   const [visibleDepartmentIds, setVisibleDepartmentIds] = useState<string[]>([]);
 
@@ -90,7 +96,20 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
             <p className="text-xs text-muted-foreground">Veja os nomes em lucide.dev/icons. Deixe em branco para um ícone padrão.</p>
           </div>
           <OrganizationsCheckboxList organizations={organizations} value={organizationIds} onChange={setOrganizationIds} />
-          <DepartmentsCheckboxList departments={departments} value={visibleDepartmentIds} onChange={setVisibleDepartmentIds} />
+          <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+            <div>
+              <Label>Autosolicitação</Label>
+              <p className="text-xs text-muted-foreground">
+                Só quem é do departamento responsável enxerga e envia (ex.: TI pedindo abono de ponto ao próprio gestor de TI) — não um serviço oferecido a outros departamentos.
+              </p>
+            </div>
+            <Controller control={control} name="isSelfRequestOnly" render={({ field }) => (
+              <Switch checked={field.value} onCheckedChange={field.onChange} />
+            )} />
+          </div>
+          {!isSelfRequestOnly && (
+            <DepartmentsCheckboxList departments={departments} value={visibleDepartmentIds} onChange={setVisibleDepartmentIds} />
+          )}
           <DialogFooter><Button type="submit" isLoading={isSubmitting}>Criar</Button></DialogFooter>
         </form>
       </DialogContent>

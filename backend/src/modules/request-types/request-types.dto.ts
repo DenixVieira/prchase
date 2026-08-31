@@ -10,6 +10,8 @@ export class CreateRequestTypeDto {
   @IsOptional() @IsString() description?: string;
   @IsUUID() departmentId!: string;
   @IsOptional() @IsString() @MaxLength(60) icon?: string;
+  /** Autosolicitação: tipo só pode ser visto/enviado por quem é do próprio departamento responsável. */
+  @IsOptional() @IsBoolean() isSelfRequestOnly?: boolean;
   /** Organizações pra quais este tipo fica visível — vazio/omitido = oculto até configurar. */
   @IsOptional() @IsArray() @IsUUID(undefined, { each: true }) organizationIds?: string[];
   /** Restrição extra opcional por departamento — vazio/omitido = sem restrição além da organização. */
@@ -22,6 +24,7 @@ export class UpdateRequestTypeDto {
   @IsOptional() @IsUUID() departmentId?: string;
   @IsOptional() @IsString() @MaxLength(60) icon?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsBoolean() isSelfRequestOnly?: boolean;
   @IsOptional() @IsArray() @IsUUID(undefined, { each: true }) organizationIds?: string[];
   @IsOptional() @IsArray() @IsUUID(undefined, { each: true }) visibleDepartmentIds?: string[];
 }

@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { PriorityBadge } from "@/components/shared/PriorityBadge";
-import { TicketStatusBadge } from "@/components/shared/StatusBadge";
+import { BoardColumnBadge } from "@/components/shared/StatusBadge";
 import { UserNameTag } from "@/components/shared/UserNameTag";
 import { DataTable, DataTableColumn } from "@/components/shared/DataTable";
 import { formatDateOnly } from "@/lib/utils";
@@ -14,7 +14,9 @@ const tableColumns: DataTableColumn<Ticket>[] = [
   { key: "organization", header: "Organização", render: (row) => row.organization?.name ?? "—" },
   { key: "assignee", header: "Responsável", render: (row) => (row.assignee ? <UserNameTag user={row.assignee} /> : <span className="text-muted-foreground">Não atribuído</span>) },
   { key: "priority", header: "Prioridade", sortKey: "priority", render: (row) => <PriorityBadge priority={row.priority} /> },
-  { key: "status", header: "Status", sortKey: "status", render: (row) => <TicketStatusBadge status={row.status} /> },
+  // Sem sortKey: coluna do board não é mais uma coluna simples do Ticket (é
+  // FK pra uma BoardColumn configurável), o backend não a expõe pra ORDER BY.
+  { key: "column", header: "Coluna", render: (row) => <BoardColumnBadge column={row.column} /> },
   { key: "date", header: "Criado em", sortKey: "createdAt", render: (row) => formatDateOnly(row.createdAt) },
 ];
 

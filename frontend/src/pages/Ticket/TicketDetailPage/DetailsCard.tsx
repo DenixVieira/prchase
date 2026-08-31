@@ -1,23 +1,19 @@
 import { ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PermissionGate } from "@/components/shared/PermissionGate";
-import { TicketStatusBadge } from "@/components/shared/StatusBadge";
+import { BoardColumnBadge } from "@/components/shared/StatusBadge";
 import { PriorityBadge } from "@/components/shared/PriorityBadge";
 import { UserNameTag } from "@/components/shared/UserNameTag";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ticketsService } from "@/services/tickets.service";
+import { boardsService } from "@/services/boardsService";
 import { useToast } from "@/hooks/useToast";
 import { extractErrorMessage } from "@/services/api";
 import { formatDate } from "@/lib/utils";
-import { PermissionKey, Priority, Ticket, TicketStatus } from "@/types";
+import { PermissionKey, Priority, Ticket } from "@/types";
 import { useInvalidateTicket } from "./useInvalidateTicket";
 
-const STATUS_OPTIONS = [
-  { value: TicketStatus.PENDING, label: "Pendente" },
-  { value: TicketStatus.IN_PROGRESS, label: "Em andamento" },
-  { value: TicketStatus.RESOLVED, label: "Resolvido" },
-  { value: TicketStatus.CANCELLED, label: "Cancelado" },
-];
 const PRIORITY_OPTIONS = [
   { value: Priority.LOW, label: "Baixa" },
   { value: Priority.MEDIUM, label: "Média" },
@@ -29,9 +25,19 @@ export function DetailsCard({ ticket }: { ticket: Ticket }) {
   const { showToast } = useToast();
   const invalidate = useInvalidateTicket();
 
-  const handleMove = async (status: string) => {
+  // Colunas do board do próprio departamento do ticket — substitui a lista
+  // fixa de status; só é buscado quando de fato vai ser exibido (ticket
+  // ativo com permissão de mover).
+  const { data: board } = useQuery({
+    queryKey: ["boards", "department", ticket.department.id],
+    queryFn: () => boardsService.getForDepartment(ticket.department.id),
+    enabled: !ticket.isArchived,
+  });
+  const columnOptions = [...(board?.columns ?? [])].sort((a, b) => a.order - b.order);
+
+  const handleMove = async (columnId: string) => {
     try {
-      await ticketsService.move(ticket.id, status);
+      await ticketsService.move(ticket.id, columnId);
       invalidate();
       showToast({ title: "Ticket atualizado", variant: "success" });
     } catch (error) {
@@ -55,16 +61,16 @@ export function DetailsCard({ ticket }: { ticket: Ticket }) {
         <div>
           <p className="text-xs text-muted-foreground mb-1">Status</p>
           {ticket.isArchived ? (
-            <TicketStatusBadge status={ticket.status} />
+            <BoardColumnBadge column={ticket.column} />
           ) : (
             <PermissionGate
               permissions={[PermissionKey.MOVE_TICKET, PermissionKey.RESOLVE_TICKET, PermissionKey.CANCEL_TICKET]}
-              fallback={<TicketStatusBadge status={ticket.status} />}
+              fallback={<BoardColumnBadge column={ticket.column} />}
             >
-              <Select value={ticket.status} onValueChange={handleMove}>
+              <Select value={ticket.columnId} onValueChange={handleMove}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUS_OPTIONS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  {columnOptions.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </PermissionGate>

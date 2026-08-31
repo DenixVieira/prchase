@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { ticketsService } from "@/services/tickets.service";
 import { usersService } from "@/services/users.service";
@@ -56,7 +56,10 @@ function FollowerPicker({ onSelect, placeholder }: { onSelect: (userId: string) 
       <div className="space-y-1 max-h-40 overflow-y-auto">
         {(data ?? []).map((u) => (
           <button key={u.id} className="flex w-full items-center gap-2 rounded-md p-1.5 text-sm hover:bg-accent" onClick={() => onSelect(u.id)}>
-            <Avatar className="h-6 w-6"><AvatarFallback className="text-[10px]">{initials(u.name)}</AvatarFallback></Avatar>
+            <Avatar className="h-6 w-6">
+              <AvatarImage src={u.avatarDataUrl ?? undefined} alt={u.name} />
+              <AvatarFallback className="text-[10px]">{initials(u.name)}</AvatarFallback>
+            </Avatar>
             {u.name}
           </button>
         ))}

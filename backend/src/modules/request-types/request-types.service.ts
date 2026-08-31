@@ -61,6 +61,14 @@ export class RequestTypesService {
     if (organizationIds.length === 0) return false;
     if (filterAccessibleOrganizationIds(user, organizationIds).length === 0) return false;
 
+    // Autosolicitação: ignora a lista de visibleDepartments (não faz sentido
+    // as duas regras juntas) — só quem é do próprio departamento responsável
+    // enxerga, ponto. Ex.: TI pedindo abono de ponto ao gestor de TI, não um
+    // serviço que outros departamentos possam solicitar a ela.
+    if (requestType.isSelfRequestOnly) {
+      return !!user.departmentId && user.departmentId === requestType.departmentId;
+    }
+
     const visibleDepartmentIds = (requestType.visibleDepartments ?? []).map((d) => d.id);
     if (visibleDepartmentIds.length === 0) return true;
     return !!user.departmentId && visibleDepartmentIds.includes(user.departmentId);
@@ -131,10 +139,20 @@ export class RequestTypesService {
 
   async create(
     actorId: string,
-    dto: { name: string; description?: string; departmentId: string; icon?: string; organizationIds?: string[]; visibleDepartmentIds?: string[] },
+    dto: {
+      name: string; description?: string; departmentId: string; icon?: string; isSelfRequestOnly?: boolean;
+      organizationIds?: string[]; visibleDepartmentIds?: string[];
+    },
     req: Request
   ): Promise<RequestType> {
-    const existing = await this.repo.findOne({ where: { name: dto.name } });
+    // withDeleted: sem isso, um nome igual ao de um tipo já excluído (soft
+    // delete) passava batido aqui e só estourava na constraint UNIQUE do
+    // banco lá na hora do INSERT — erro genérico "Erro interno do servidor"
+    // em vez de uma mensagem que explica o que aconteceu.
+    const existing = await this.repo.findOne({ where: { name: dto.name }, withDeleted: true });
+    if (existing?.deletedAt) {
+      throw ApiError.conflict("Já existe um tipo de solicitação excluído com este nome. Escolha outro nome ou peça a um administrador para restaurá-lo.");
+    }
     if (existing) throw ApiError.conflict("Já existe um tipo de solicitação com este nome");
 
     const organizations = await this.resolveOrganizations(dto.organizationIds);
@@ -144,6 +162,7 @@ export class RequestTypesService {
       description: dto.description ?? null,
       departmentId: dto.departmentId,
       icon: dto.icon ?? null,
+      isSelfRequestOnly: dto.isSelfRequestOnly ?? false,
       organizations: organizations ?? [],
       visibleDepartments: visibleDepartments ?? [],
     });
@@ -157,7 +176,7 @@ export class RequestTypesService {
     actorId: string,
     id: string,
     dto: {
-      name?: string; description?: string; departmentId?: string; icon?: string; isActive?: boolean;
+      name?: string; description?: string; departmentId?: string; icon?: string; isActive?: boolean; isSelfRequestOnly?: boolean;
       organizationIds?: string[]; visibleDepartmentIds?: string[];
     },
     req: Request
@@ -167,7 +186,10 @@ export class RequestTypesService {
       throw ApiError.badRequest("O tipo de solicitação de Compra não pode ser editado");
     }
     if (dto.name && dto.name !== requestType.name) {
-      const existing = await this.repo.findOne({ where: { name: dto.name } });
+      const existing = await this.repo.findOne({ where: { name: dto.name }, withDeleted: true });
+      if (existing?.deletedAt) {
+        throw ApiError.conflict("Já existe um tipo de solicitação excluído com este nome. Escolha outro nome ou peça a um administrador para restaurá-lo.");
+      }
       if (existing) throw ApiError.conflict("Já existe um tipo de solicitação com este nome");
     }
 

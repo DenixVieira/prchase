@@ -10,9 +10,10 @@ interface GroupSectionProps {
   departments: Department[];
   onManagePermissions: (department: Department) => void;
   onManageOrganizations: (department: Department) => void;
+  onManageBoard: (department: Department) => void;
 }
 
-export function GroupSection({ title, subtitle, departments, onManagePermissions, onManageOrganizations }: GroupSectionProps) {
+export function GroupSection({ title, subtitle, departments, onManagePermissions, onManageOrganizations, onManageBoard }: GroupSectionProps) {
   const [open, setOpen] = useState(true);
 
   return (
@@ -35,6 +36,7 @@ export function GroupSection({ title, subtitle, departments, onManagePermissions
               department={department}
               onManagePermissions={() => onManagePermissions(department)}
               onManageOrganizations={() => onManageOrganizations(department)}
+              onManageBoard={() => onManageBoard(department)}
             />
           ))}
         </div>

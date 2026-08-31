@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -18,17 +19,41 @@ export function PermissionsDialog({ department, catalog, onOpenChange, onDepartm
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
+  // Cópia local otimista das chaves concedidas. Antes, cada clique recalculava
+  // o conjunto a partir da prop `department`, que só é atualizada depois que o
+  // PUT anterior responde — clicar duas vezes rápido (duplo clique) disparava
+  // dois toggles a partir do MESMO snapshot desatualizado, e a resposta que
+  // chegasse por último sobrescrevia a outra, deixando permissões erradas
+  // marcadas. Sincroniza de novo só quando troca de departamento (abre o
+  // diálogo para outro card), não a cada resposta do próprio toggle.
+  const [grantedKeys, setGrantedKeys] = useState<Set<PermissionKey>>(new Set());
+  useEffect(() => {
+    setGrantedKeys(new Set((department?.permissions ?? []).map((p) => p.permission.key)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [department?.id]);
+
+  // Enquanto uma chamada está em andamento, os checkboxes ficam desabilitados
+  // — impede que um segundo clique (duplo clique) dispare outro PUT
+  // concorrente pro mesmo departamento antes do primeiro terminar.
+  const [saving, setSaving] = useState(false);
+
   const togglePermission = async (key: PermissionKey, checked: boolean) => {
-    if (!department) return;
-    const current = new Set((department.permissions ?? []).map((p) => p.permission.key));
-    if (checked) current.add(key);
-    else current.delete(key);
+    if (!department || saving) return;
+    const previous = grantedKeys;
+    const next = new Set(previous);
+    if (checked) next.add(key);
+    else next.delete(key);
+    setGrantedKeys(next);
+    setSaving(true);
     try {
-      const updated = await departmentsService.updatePermissions(department.id, Array.from(current));
+      const updated = await departmentsService.updatePermissions(department.id, Array.from(next));
       onDepartmentChange(updated);
       queryClient.invalidateQueries({ queryKey: ["departments"] });
     } catch (error) {
+      setGrantedKeys(previous);
       showToast({ title: "Erro ao atualizar permissões", description: extractErrorMessage(error), variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -51,11 +76,12 @@ export function PermissionsDialog({ department, catalog, onOpenChange, onDepartm
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {items.map((permission) => {
-                    const checked = (department?.permissions ?? []).some((p) => p.permission.key === permission.key);
+                    const checked = grantedKeys.has(permission.key);
                     return (
                       <label key={permission.id} className="flex items-center gap-2 rounded-md border border-border p-2 text-sm cursor-pointer">
                         <Checkbox
                           checked={checked}
+                          disabled={saving}
                           onCheckedChange={(value) => togglePermission(permission.key, !!value)}
                         />
                         {permission.description}

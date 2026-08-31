@@ -1,0 +1,36 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "module"
+  },
+  "plugins": ["@typescript-eslint"],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  "env": {
+    "node": true,
+    "es2021": true,
+    "jest": true
+  },
+  "rules": {
+    // TypeScript já cobre isso via noUnusedLocals/noUnusedParameters no
+    // tsconfig — desliga a versão JS pra não duplicar o aviso, mantém a
+    // versão TS (que entende tipos/interfaces) com exceção pra parâmetros
+    // prefixados com "_" (padrão pra indicar "recebido mas ignorado de
+    // propósito", ex.: middlewares Express que exigem a assinatura completa).
+    "no-unused-vars": "off",
+    // ignoreRestSiblings: cobre o padrão "const { campoQueNaoVaiPraColuna,
+    // ...columns } = dto" usado pra excluir uma chave antes de passar o
+    // resto pro TypeORM — o TS já entende essa intenção nativamente
+    // (por isso não aparece no tsc), o ESLint precisa da opção explícita.
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "ignoreRestSiblings": true }],
+    // allowDeclarations: "declare global { namespace Express { ... } }" é a
+    // forma padrão do TypeScript de estender tipos de uma lib de terceiros
+    // (aqui, adicionar `req.user`/`req.uploadContext` ao Request do
+    // Express) — não existe alternativa via ES module pra isso, então a
+    // regra (pensada pra impedir "namespace" como substituto de import/
+    // export em código de runtime) precisa dessa exceção.
+    "@typescript-eslint/no-namespace": ["error", { "allowDeclarations": true }]
+  },
+  "ignorePatterns": ["dist/"]
+}

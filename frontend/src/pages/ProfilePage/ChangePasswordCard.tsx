@@ -8,10 +8,14 @@ import { Button } from "@/components/ui/button";
 import { authService } from "@/services/auth.service";
 import { useToast } from "@/hooks/useToast";
 import { extractErrorMessage } from "@/services/api";
+import { PASSWORD_POLICY_REGEX, PASSWORD_POLICY_MESSAGE } from "@/lib/passwordPolicy";
 
 const schema = z.object({
-  currentPassword: z.string().min(6),
-  newPassword: z.string().min(6, "A nova senha deve ter ao menos 6 caracteres"),
+  // Senha atual: só confirma quem está pedindo a troca, não precisa cumprir
+  // a política completa (pode ter sido criada antes dela existir) — mesmo
+  // mínimo de 6 caracteres exigido pelo backend (auth.dto.ts).
+  currentPassword: z.string().min(6, "Informe sua senha atual"),
+  newPassword: z.string().regex(PASSWORD_POLICY_REGEX, PASSWORD_POLICY_MESSAGE),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -42,6 +46,7 @@ export function ChangePasswordCard() {
           <div className="space-y-1.5">
             <Label>Nova Senha</Label>
             <PasswordInput {...register("newPassword")} />
+            <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_MESSAGE}</p>
             {errors.newPassword && <p className="text-xs text-destructive">{errors.newPassword.message}</p>}
           </div>
           <Button type="submit" isLoading={isSubmitting}>Alterar Senha</Button>

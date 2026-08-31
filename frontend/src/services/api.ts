@@ -86,8 +86,18 @@ export function clearSession() {
 
 export function extractErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const message = (error.response?.data as { message?: string } | undefined)?.message;
-    if (message) return message;
+    const data = error.response?.data as { message?: string; details?: Record<string, string[]> } | undefined;
+    // "Dados inválidos" sozinho não diz qual campo nem por quê (ex.: senha
+    // fora da política) — quando o backend manda "details" por campo
+    // (validateDto), anexa a primeira mensagem de cada campo à mensagem
+    // genérica em vez de deixar o usuário adivinhar.
+    if (data?.details && Object.keys(data.details).length > 0) {
+      const fieldMessages = Object.values(data.details)
+        .map((messages) => messages[0])
+        .filter(Boolean);
+      if (fieldMessages.length > 0) return fieldMessages.join(" ");
+    }
+    if (data?.message) return data.message;
   }
   return "Ocorreu um erro inesperado. Tente novamente.";
 }

@@ -17,6 +17,7 @@ const TYPE_LABELS: Record<RequestFieldType, string> = {
   [RequestFieldType.TEXTAREA]: "Texto longo",
   [RequestFieldType.NUMBER]: "Número",
   [RequestFieldType.DATE]: "Data",
+  [RequestFieldType.DATETIME]: "Data e Hora",
   [RequestFieldType.SELECT]: "Seleção",
   [RequestFieldType.MULTISELECT]: "Múltipla seleção",
   [RequestFieldType.CHECKBOX]: "Checkbox",

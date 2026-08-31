@@ -8,6 +8,7 @@ import {
   NotificationPreference, Organization, RequestType, RequestTypeSourceKind,
 } from "../entities";
 import { env } from "../../config/env";
+import { boardsService } from "../../modules/boards/boards.service";
 
 /**
  * Busca por nome incluindo soft-deleted (`withDeleted`) e reativa
@@ -95,6 +96,12 @@ async function seed() {
     let department = await findOrRestore(departmentRepo, { name: data.name });
     if (!department) {
       department = await departmentRepo.save(departmentRepo.create(data));
+      // Departamento genuinamente novo (não existia nem soft-deleted) — os
+      // que já existiam antes desta feature já ganharam board na migration
+      // 1700000000012, então só o caminho de criação de verdade precisa
+      // provisionar (departments.service.ts::create() cobre a criação feita
+      // pela UI; este loop não passa por lá).
+      await boardsService.provisionBoard(department);
     }
     departments.set(data.name, department);
   }

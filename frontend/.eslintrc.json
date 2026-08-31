@@ -1,0 +1,32 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module",
+    "ecmaFeatures": { "jsx": true }
+  },
+  "plugins": ["@typescript-eslint", "react-hooks"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:react-hooks/recommended"
+  ],
+  "env": {
+    "browser": true,
+    "es2020": true
+  },
+  "rules": {
+    // TypeScript já cobre variável/import não usado via noUnusedLocals/
+    // noUnusedParameters no tsconfig — desliga a versão JS (que não entende
+    // tipos) e mantém só a do TS, com exceção pra parâmetros prefixados com
+    // "_" (padrão do projeto pra "recebido mas ignorado de propósito").
+    "no-unused-vars": "off",
+    // ignoreRestSiblings: cobre o padrão "const { campoQueNaoVaiPraColuna,
+    // ...resto } = objeto" usado pra excluir uma chave antes de repassar o
+    // resto adiante — o TS já entende essa intenção nativamente (por isso
+    // não aparece no tsc), o ESLint precisa da opção explícita.
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "ignoreRestSiblings": true }]
+  },
+  "ignorePatterns": ["dist/"]
+}

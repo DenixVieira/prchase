@@ -10,6 +10,7 @@ export const PERMISSION_GROUPS: { title: string; keys: PermissionKey[] }[] = [
   {
     title: "Permissões de Solicitações e Tickets",
     keys: [
+      PermissionKey.CREATE_REQUEST,
       PermissionKey.CREATE_PURCHASE_REQUEST,
       PermissionKey.EDIT_PURCHASE_REQUEST,
       PermissionKey.CANCEL_PURCHASE_REQUEST,
@@ -27,7 +28,7 @@ export const PERMISSION_GROUPS: { title: string; keys: PermissionKey[] }[] = [
   },
   {
     title: "Permissões de Tela",
-    keys: [PermissionKey.VIEW_ARCHIVED_TICKETS, PermissionKey.EXPORT_INVOICES],
+    keys: [PermissionKey.VIEW_DASHBOARD, PermissionKey.VIEW_ARCHIVED_TICKETS, PermissionKey.EXPORT_INVOICES],
   },
   {
     title: "Permissões de Equipamentos",
@@ -44,6 +45,7 @@ export const PERMISSION_GROUPS: { title: string; keys: PermissionKey[] }[] = [
     keys: [
       PermissionKey.MANAGE_USERS,
       PermissionKey.MANAGE_DEPARTMENTS,
+      PermissionKey.MANAGE_REQUEST_TYPES,
       PermissionKey.MANAGE_SETTINGS,
       PermissionKey.SYSTEM_ADMIN,
     ],

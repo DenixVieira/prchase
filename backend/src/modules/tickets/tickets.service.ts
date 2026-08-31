@@ -1,44 +1,39 @@
 import { Request } from "express";
 import { AppDataSource } from "../../config/data-source";
 import {
-  Ticket, TicketStatus, Comment, Follower, Tag, HistoryAction, NotificationType,
-  AuditAction, Priority,
+  Ticket, BoardColumn, Comment, Follower, Tag, User, HistoryAction, NotificationType,
+  AuditAction, Priority, PermissionKey,
 } from "../../database/entities";
 import { ApiError } from "../../utils/ApiError";
 import { getPaginationParams, buildPaginationMeta } from "../../utils/pagination";
 import { getAccessibleOrganizationIds, assertOrganizationAccess, assertTargetUserOrganizationAccess } from "../../utils/organizationAccess";
-import { hasSystemAdminAccess } from "../../utils/permissionAccess";
+import { hasSystemAdminAccess, hasPermission } from "../../utils/permissionAccess";
+import { extractMentionedUserIds } from "../../utils/mentions";
+import { boardsService } from "../boards/boards.service";
 import { historyService } from "../history/history.service";
 import { notificationService } from "../notifications/notification.service";
 import { auditService } from "../audit/audit.service";
 import { emitBroadcast, SOCKET_EVENTS } from "../../sockets/socket";
 import { AuthenticatedUser } from "../../middlewares/types";
 
-const VALID_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
-  [TicketStatus.PENDING]: [TicketStatus.IN_PROGRESS, TicketStatus.CANCELLED],
-  [TicketStatus.IN_PROGRESS]: [TicketStatus.PENDING, TicketStatus.RESOLVED, TicketStatus.CANCELLED],
-  [TicketStatus.RESOLVED]: [TicketStatus.IN_PROGRESS, TicketStatus.PENDING],
-  [TicketStatus.CANCELLED]: [TicketStatus.PENDING, TicketStatus.IN_PROGRESS],
-};
-
-const STATUS_LABELS: Record<TicketStatus, string> = {
-  [TicketStatus.PENDING]: "Pendente",
-  [TicketStatus.IN_PROGRESS]: "Em andamento",
-  [TicketStatus.RESOLVED]: "Resolvido",
-  [TicketStatus.CANCELLED]: "Cancelado",
-};
-
 export class TicketsService {
   private repo = AppDataSource.getRepository(Ticket);
   private commentRepo = AppDataSource.getRepository(Comment);
   private followerRepo = AppDataSource.getRepository(Follower);
   private tagRepo = AppDataSource.getRepository(Tag);
+  private boardColumnRepo = AppDataSource.getRepository(BoardColumn);
+  private userRepo = AppDataSource.getRepository(User);
 
   async list(req: Request, user: AuthenticatedUser) {
     const { page, limit, skip, sortBy, sortOrder, search } = getPaginationParams(req, "createdAt", [
-      "protocol", "title", "status", "priority", "createdAt", "archivedAt",
+      "protocol", "title", "priority", "createdAt", "archivedAt",
     ]);
     const qb = this.repo.createQueryBuilder("t")
+      // "column" é uma relação eager na entidade, mas eager só é aplicado
+      // automaticamente pelo TypeORM em repo.find()/findOne() — QueryBuilder
+      // (como aqui) precisa do join explícito, senão o front recebe
+      // columnId mas nenhum objeto "column" (badge/nome/cor ficam vazios).
+      .leftJoinAndSelect("t.column", "column")
       .leftJoinAndSelect("t.assignee", "assignee")
       .leftJoinAndSelect("t.department", "department")
       .leftJoinAndSelect("t.requester", "requester")
@@ -57,7 +52,7 @@ export class TicketsService {
       }
     }
 
-    if (req.query.status) qb.andWhere("t.status = :status", { status: req.query.status });
+    if (req.query.columnId) qb.andWhere("t.columnId = :columnId", { columnId: req.query.columnId });
     if (req.query.priority) qb.andWhere("t.priority = :priority", { priority: req.query.priority });
 
     // O Kanban/Arquivados deixou de ser exclusivo de um departamento fixo —
@@ -69,10 +64,21 @@ export class TicketsService {
     // e não pode ser sobrescrito pela query (senão daria pra "espiar" o
     // board de outro departamento só trocando o parâmetro).
     const isPrivileged = await hasSystemAdminAccess(user);
-    if (!isPrivileged) {
-      qb.andWhere("t.departmentId = :scopedDepartmentId", { scopedDepartmentId: user.departmentId ?? null });
+    let targetDepartmentId: string | null = null;
+    // "Meus Tickets" (?mine=true): tickets em que o usuário é o solicitante,
+    // não o departamento — inclusive os que hoje "moram" em outro
+    // departamento (aprovação sempre muda o dono pra fora do dept. de
+    // origem). É assim que o solicitante acompanha o andamento do que abriu,
+    // já que o board normal abaixo é escopado só pelo departamento dele.
+    const isMine = req.query.mine === "true";
+    if (isMine) {
+      qb.andWhere("t.requesterId = :requesterId", { requesterId: user.id });
+    } else if (!isPrivileged) {
+      targetDepartmentId = user.departmentId ?? null;
+      qb.andWhere("t.departmentId = :scopedDepartmentId", { scopedDepartmentId: targetDepartmentId });
     } else if (req.query.departmentId) {
-      qb.andWhere("t.departmentId = :departmentId", { departmentId: req.query.departmentId });
+      targetDepartmentId = String(req.query.departmentId);
+      qb.andWhere("t.departmentId = :departmentId", { departmentId: targetDepartmentId });
     }
 
     if (req.query.organizationId) qb.andWhere("t.organizationId = :organizationId", { organizationId: req.query.organizationId });
@@ -99,30 +105,38 @@ export class TicketsService {
 
     const isBoard = req.query.board === "true";
     if (isBoard) {
+      // O board sempre é de UM departamento por vez (departamentos diferentes
+      // podem ter colunas diferentes, não dá pra misturar numa grade só) —
+      // o próprio pra quem tem escopo forçado, ou o explicitamente escolhido
+      // por quem tem acesso irrestrito.
+      if (!targetDepartmentId) {
+        throw ApiError.badRequest("Informe o departamento para visualizar o board");
+      }
+      const board = await boardsService.getByDepartmentId(targetDepartmentId);
+
       // Uma coluna com muito ticket acumulado não pode carregar tudo de uma
       // vez só (uma fila de "Pendente" com milhares de itens já travaria o
       // board inteiro) — cada coluna é paginada por conta própria, com teto
       // configurável via ?columnLimit= (padrão 50, no máx 200). O client usa
-      // columnTotals (contagem real por status) pra saber se tem mais item
+      // columnTotals (contagem real por coluna) pra saber se tem mais item
       // do que o que veio e oferecer "carregar mais".
       const columnLimit = Math.min(Math.max(parseInt(String(req.query.columnLimit ?? "50"), 10) || 50, 1), 200);
-      const statuses = Object.values(TicketStatus);
       const perColumn = await Promise.all(
-        statuses.map(async (status) => {
+        board.columns.map(async (column) => {
           // clone() preserva todos os where/params já aplicados no qb base
           // (organização, departamento, filtros de tela) — cada coluna só
-          // adiciona sua própria condição de status por cima.
-          const columnBase = qb.clone().andWhere("t.status = :columnStatus", { columnStatus: status });
+          // adiciona sua própria condição de coluna por cima.
+          const columnBase = qb.clone().andWhere("t.columnId = :columnFilterId", { columnFilterId: column.id });
           const [items, total] = await Promise.all([
             columnBase.clone().leftJoinAndSelect("t.tags", "tags").orderBy("t.createdAt", "DESC").take(columnLimit).getMany(),
             columnBase.getCount(),
           ]);
-          return { status, items, total };
+          return { columnId: column.id, items, total };
         })
       );
 
       const items = perColumn.flatMap((c) => c.items);
-      const columnTotals = Object.fromEntries(perColumn.map((c) => [c.status, c.total]));
+      const columnTotals = Object.fromEntries(perColumn.map((c) => [c.columnId, c.total]));
       return {
         items,
         meta: { ...buildPaginationMeta(1, items.length || 1, items.length), columnTotals, columnLimit },
@@ -132,6 +146,51 @@ export class TicketsService {
     qb.orderBy(`t.${sortBy}`, sortOrder).skip(skip).take(limit);
     const [items, total] = await qb.getManyAndCount();
     return { items, meta: buildPaginationMeta(page, limit, total) };
+  }
+
+  /**
+   * Busca rápida (barra de pesquisa do Navbar) por protocolo ou título,
+   * cruzando departamentos — diferente de list(), que por padrão escopa ao
+   * departamento do usuário. Aqui o critério é "o usuário tem acesso a ESTE
+   * ticket específico" (mesma regra objeto-a-objeto de assertDepartmentAccess):
+   * privilegiado vê tudo; os demais só veem tickets do próprio departamento,
+   * dos quais são o solicitante, ou dos quais são o responsável atribuído.
+   * Arquivados só entram no resultado pra quem tem VIEW_ARCHIVED_TICKETS.
+   */
+  async quickSearch(user: AuthenticatedUser, rawQuery: string): Promise<Ticket[]> {
+    const query = rawQuery.trim();
+    if (query.length < 2) return [];
+
+    const qb = this.repo.createQueryBuilder("t")
+      .leftJoinAndSelect("t.column", "column")
+      .leftJoinAndSelect("t.department", "department")
+      .leftJoinAndSelect("t.assignee", "assignee")
+      .leftJoinAndSelect("t.requester", "requester")
+      .where("(t.protocol ILIKE :query OR t.title ILIKE :query)", { query: `%${query}%` });
+
+    const accessibleOrganizationIds = getAccessibleOrganizationIds(user);
+    if (accessibleOrganizationIds !== null) {
+      if (accessibleOrganizationIds.length === 0) {
+        qb.andWhere("1 = 0");
+      } else {
+        qb.andWhere("(t.organizationId IN (:...accessibleOrganizationIds) OR t.organizationId IS NULL)", { accessibleOrganizationIds });
+      }
+    }
+
+    const isPrivileged = await hasSystemAdminAccess(user);
+    if (!isPrivileged) {
+      qb.andWhere("(t.departmentId = :userDepartmentId OR t.requesterId = :userId OR t.assigneeId = :userId)", {
+        userDepartmentId: user.departmentId ?? null,
+        userId: user.id,
+      });
+    }
+
+    const canSeeArchived = isPrivileged || (await hasPermission(user, PermissionKey.VIEW_ARCHIVED_TICKETS));
+    if (!canSeeArchived) {
+      qb.andWhere("t.isArchived = false");
+    }
+
+    return qb.orderBy("t.createdAt", "DESC").take(10).getMany();
   }
 
   async findByIdOrFail(id: string, user?: AuthenticatedUser): Promise<Ticket> {
@@ -189,44 +248,53 @@ export class TicketsService {
     return Array.from(ids);
   }
 
-  async move(user: AuthenticatedUser, id: string, newStatus: TicketStatus, req: Request): Promise<Ticket> {
+  /**
+   * Sem checagem de transição válida — qualquer coluna do board pra qualquer
+   * outra (decisão do usuário: livre, igual ao Trello). "Reabrir" e o tipo
+   * de notificação são derivados das flags isDone/isCancelled da coluna de
+   * origem vs. destino, não mais de um enum fixo.
+   */
+  async move(user: AuthenticatedUser, id: string, newColumnId: string, req: Request): Promise<Ticket> {
     const ticket = await this.findByIdOrFail(id, user);
     this.assertNotArchived(ticket);
-    const currentStatus = ticket.status;
+    const currentColumn = ticket.column;
 
-    if (currentStatus === newStatus) {
+    if (currentColumn.id === newColumnId) {
       throw ApiError.badRequest("O ticket já se encontra nesta coluna");
     }
-    if (!VALID_TRANSITIONS[currentStatus].includes(newStatus)) {
-      throw ApiError.badRequest(`Não é possível mover de ${STATUS_LABELS[currentStatus]} para ${STATUS_LABELS[newStatus]}`);
-    }
-    if (newStatus === TicketStatus.RESOLVED) {
-      // Resolver exige permissão específica, validada na rota via authorize adicional no controller
+    const newColumn = await this.boardColumnRepo.findOne({ where: { id: newColumnId } });
+    if (!newColumn) throw ApiError.notFound("Coluna não encontrada");
+    if (newColumn.boardId !== currentColumn.boardId) {
+      throw ApiError.badRequest("A coluna informada não pertence ao board deste ticket");
     }
 
-    ticket.status = newStatus;
-    await this.repo.save(ticket);
+    // update() em vez de carregar+mutar+save(): "column" (relação eager) e
+    // "columnId" (coluna) mapeiam a mesma coluna do banco — mesmo cuidado de
+    // assign() com assignee/assigneeId.
+    await this.repo.update(id, { columnId: newColumn.id });
 
-    const isReopening = [TicketStatus.RESOLVED, TicketStatus.CANCELLED].includes(currentStatus);
+    const wasTerminal = currentColumn.isDone || currentColumn.isCancelled;
+    const isNowTerminal = newColumn.isDone || newColumn.isCancelled;
+    const isReopening = wasTerminal && !isNowTerminal;
     const action = isReopening
       ? HistoryAction.REOPENED
-      : newStatus === TicketStatus.RESOLVED
+      : newColumn.isDone
         ? HistoryAction.RESOLVED
-        : newStatus === TicketStatus.CANCELLED
+        : newColumn.isCancelled
           ? HistoryAction.CANCELLED
           : HistoryAction.STATUS_CHANGED;
 
     const description = isReopening
-      ? `${user.name} reabriu o ticket, movendo de ${STATUS_LABELS[currentStatus]} para ${STATUS_LABELS[newStatus]}.`
-      : `${user.name} moveu o Ticket de ${STATUS_LABELS[currentStatus]} para ${STATUS_LABELS[newStatus]}.`;
+      ? `${user.name} reabriu o ticket, movendo de ${currentColumn.name} para ${newColumn.name}.`
+      : `${user.name} moveu o Ticket de ${currentColumn.name} para ${newColumn.name}.`;
 
-    await historyService.record({ ticketId: id, userId: user.id, action, description, metadata: { from: currentStatus, to: newStatus } });
-    await auditService.log({ userId: user.id, action: AuditAction.MOVE, entity: "Ticket", entityId: id, req, metadata: { from: currentStatus, to: newStatus } });
+    await historyService.record({ ticketId: id, userId: user.id, action, description, metadata: { from: currentColumn.id, to: newColumn.id } });
+    await auditService.log({ userId: user.id, action: AuditAction.MOVE, entity: "Ticket", entityId: id, req, metadata: { from: currentColumn.id, to: newColumn.id } });
 
     const stakeholders = await this.getStakeholderIds(ticket, user.id);
-    const notificationType = newStatus === TicketStatus.RESOLVED
+    const notificationType = newColumn.isDone
       ? NotificationType.TICKET_RESOLVED
-      : newStatus === TicketStatus.CANCELLED
+      : newColumn.isCancelled
         ? NotificationType.TICKET_CANCELLED
         : isReopening
           ? NotificationType.TICKET_REOPENED
@@ -240,7 +308,7 @@ export class TicketsService {
       relatedTicketId: ticket.id,
     });
 
-    emitBroadcast(SOCKET_EVENTS.TICKET_MOVED, { id: ticket.id, from: currentStatus, to: newStatus, protocol: ticket.protocol });
+    emitBroadcast(SOCKET_EVENTS.TICKET_MOVED, { id: ticket.id, from: currentColumn.id, to: newColumn.id, protocol: ticket.protocol });
     return this.findByIdOrFail(id, user);
   }
 
@@ -282,7 +350,7 @@ export class TicketsService {
     if (ticket.isArchived) {
       throw ApiError.conflict("Este ticket já está arquivado");
     }
-    if (![TicketStatus.RESOLVED, TicketStatus.CANCELLED].includes(ticket.status)) {
+    if (!ticket.column.isDone && !ticket.column.isCancelled) {
       throw ApiError.badRequest("Só é possível arquivar tickets Resolvidos ou Cancelados");
     }
     const archivedAt = new Date();
@@ -406,8 +474,49 @@ export class TicketsService {
       relatedTicketId: ticket.id,
     });
 
+    await this.notifyMentionedUsers(user, ticket, content);
+
     emitBroadcast(SOCKET_EVENTS.TICKET_COMMENTED, { id: ticket.id });
     return comment;
+  }
+
+  /**
+   * Extrai as menções "@Nome" do texto do comentário (casando contra os
+   * usuários ativos — ver utils/mentions.ts) e notifica cada um, além (não em
+   * vez) da notificação de NEW_COMMENT que os stakeholders já recebem acima,
+   * já que "fui mencionado" é um sinal diferente de "há um comentário novo",
+   * mesmo pra quem já acompanha. Quem é mencionado passa a acompanhar o
+   * ticket automaticamente (mesma lógica de quem comenta), pra continuar
+   * recebendo o que vier depois. Uma menção a alguém sem acesso à organização
+   * do ticket é ignorada silenciosamente — não faz o comentário inteiro
+   * falhar por causa disso.
+   */
+  private async notifyMentionedUsers(author: AuthenticatedUser, ticket: Ticket, content: string): Promise<void> {
+    if (!content.includes("@")) return;
+    const candidates = await this.userRepo.find({ where: { isActive: true }, select: ["id", "name"] });
+    const mentionedIds = extractMentionedUserIds(content, candidates).filter((mentionedId) => mentionedId !== author.id);
+    if (mentionedIds.length === 0) return;
+
+    const validIds: string[] = [];
+    for (const mentionedId of mentionedIds) {
+      try {
+        await assertTargetUserOrganizationAccess(mentionedId, ticket.organizationId);
+        validIds.push(mentionedId);
+      } catch {
+        // usuário sem acesso à organização do ticket — ignora essa menção
+      }
+    }
+    if (validIds.length === 0) return;
+
+    await Promise.all(validIds.map((mentionedId) => this.ensureFollower(ticket.id, mentionedId)));
+
+    await notificationService.notifyMany(validIds, {
+      type: NotificationType.MENTIONED_IN_COMMENT,
+      title: `Você foi mencionado no ticket ${ticket.protocol}`,
+      message: `${author.name}: ${content.slice(0, 140)}`,
+      link: `/tickets/${ticket.id}`,
+      relatedTicketId: ticket.id,
+    });
   }
 
   async addFollower(user: AuthenticatedUser, id: string, userId: string, req: Request): Promise<void> {

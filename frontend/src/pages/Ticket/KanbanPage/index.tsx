@@ -5,13 +5,15 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { ticketsService } from "@/services/tickets.service";
 import { organizationsService } from "@/services/organizations.service";
 import { requestTypesService } from "@/services/requestTypes.service";
+import { boardsService } from "@/services/boardsService";
+import { departmentsService } from "@/services/departments.service";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useToast } from "@/hooks/useToast";
 import { usePermission } from "@/hooks/usePermission";
 import { useAuth } from "@/contexts/AuthContext";
 import { extractErrorMessage } from "@/services/api";
 import { downloadCsvBlob } from "@/lib/utils";
-import { PermissionKey, RequestTypeSourceKind, Ticket, TicketStatus } from "@/types";
+import { PermissionKey, RequestTypeSourceKind, Ticket } from "@/types";
 import { FiltersBar } from "./FiltersBar";
 import { BoardView } from "./BoardView";
 import { TableView } from "./TableView";
@@ -36,6 +38,28 @@ export default function KanbanPage() {
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
   const debouncedSearch = useDebounce(search);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  // Quem tem acesso irrestrito (admin/SYSTEM_ADMIN) ganha um seletor pra
+  // trocar de board — o Kanban sempre mostra o de UM departamento por vez
+  // (as colunas são configuráveis por departamento, não dá pra misturar).
+  const isPrivileged = can(PermissionKey.SYSTEM_ADMIN);
+  const [boardDepartmentId, setBoardDepartmentId] = useState(user?.department?.id ?? "");
+  useEffect(() => {
+    if (!boardDepartmentId && user?.department?.id) setBoardDepartmentId(user.department.id);
+  }, [boardDepartmentId, user?.department?.id]);
+
+  const { data: allDepartments } = useQuery({
+    queryKey: ["departments", "active"],
+    queryFn: () => departmentsService.listActive(),
+    enabled: isPrivileged,
+  });
+
+  const { data: board } = useQuery({
+    queryKey: ["boards", "department", boardDepartmentId],
+    queryFn: () => boardsService.getForDepartment(boardDepartmentId),
+    enabled: !!boardDepartmentId,
+  });
+  const columns = useMemo(() => [...(board?.columns ?? [])].sort((a, b) => a.order - b.order), [board]);
 
   const { data: organizations } = useQuery({ queryKey: ["organizations", "my-accessible"], queryFn: () => organizationsService.myAccessible() });
   // Card de Compra (sourceKind=PURCHASE_REQUEST) nunca marca requestTypeId nos
@@ -62,14 +86,17 @@ export default function KanbanPage() {
   // não faz sentido manter um teto ampliado (de um "carregar mais" anterior)
   // depois que o recorte de dados mudou.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setColumnLimit(50), [filters]);
+  useEffect(() => setColumnLimit(50), [filters, boardDepartmentId]);
 
-  const params = useMemo(() => ({ ...filters, board: true, columnLimit }), [filters, columnLimit]);
+  const params = useMemo(
+    () => ({ ...filters, board: true, columnLimit, departmentId: boardDepartmentId || undefined }),
+    [filters, columnLimit, boardDepartmentId]
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ["tickets", "board", params],
     queryFn: () => ticketsService.list(params),
-    enabled: view === "board",
+    enabled: view === "board" && !!boardDepartmentId,
   });
 
   const tableParams = useMemo(
@@ -83,9 +110,11 @@ export default function KanbanPage() {
     enabled: view === "table",
   });
 
-  const ticketsByStatus = useMemo(() => {
-    const grouped: Record<TicketStatus, Ticket[]> = { PENDING: [], IN_PROGRESS: [], RESOLVED: [], CANCELLED: [] };
-    (data?.items ?? []).forEach((ticket) => grouped[ticket.status].push(ticket));
+  const ticketsByColumn = useMemo(() => {
+    const grouped: Record<string, Ticket[]> = {};
+    (data?.items ?? []).forEach((ticket) => {
+      (grouped[ticket.columnId] ??= []).push(ticket);
+    });
     return grouped;
   }, [data]);
 
@@ -101,16 +130,16 @@ export default function KanbanPage() {
     const { active, over } = event;
     if (!over) return;
     const ticket = (data?.items ?? []).find((t) => t.id === active.id);
-    const newStatus = over.id as TicketStatus;
-    if (!ticket || ticket.status === newStatus) return;
+    const newColumnId = over.id as string;
+    if (!ticket || ticket.columnId === newColumnId) return;
 
     queryClient.setQueryData(["tickets", "board", params], (old: { items: Ticket[] } | undefined) => {
       if (!old) return old;
-      return { ...old, items: old.items.map((t) => (t.id === ticket.id ? { ...t, status: newStatus } : t)) };
+      return { ...old, items: old.items.map((t) => (t.id === ticket.id ? { ...t, columnId: newColumnId } : t)) };
     });
 
     try {
-      await ticketsService.move(ticket.id, newStatus);
+      await ticketsService.move(ticket.id, newColumnId);
       queryClient.invalidateQueries({ queryKey: ["tickets"] });
     } catch (error) {
       showToast({ title: "Não foi possível mover o ticket", description: extractErrorMessage(error), variant: "destructive" });
@@ -147,13 +176,17 @@ export default function KanbanPage() {
           assigneeFilter={assigneeFilter}
           onAssigneeFilterChange={setAssigneeFilter}
           onExport={handleExport}
+          boardDepartmentId={boardDepartmentId}
+          onBoardDepartmentIdChange={setBoardDepartmentId}
+          boardDepartments={isPrivileged ? allDepartments : undefined}
         />
       </div>
 
       {view === "board" ? (
         <BoardView
           isLoading={isLoading}
-          ticketsByStatus={ticketsByStatus}
+          columns={columns}
+          ticketsByColumn={ticketsByColumn}
           columnTotals={data?.meta?.columnTotals}
           onLoadMore={() => setColumnLimit((prev) => prev + 50)}
           canDrag={canDrag}

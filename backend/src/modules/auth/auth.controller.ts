@@ -38,3 +38,8 @@ export const changeEmail = asyncHandler(async (req: Request, res: Response) => {
   const result = await authService.changeEmail(req.user!.id, currentPassword, newEmail, req);
   sendSuccess(res, result);
 });
+
+export const changeAvatar = asyncHandler(async (req: Request, res: Response) => {
+  const result = await authService.changeAvatar(req.user!.id, req.body.avatarDataUrl, req);
+  sendSuccess(res, result);
+});

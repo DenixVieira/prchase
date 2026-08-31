@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ticketsService } from "@/services/tickets.service";
 import { useToast } from "@/hooks/useToast";
 import { extractErrorMessage } from "@/services/api";
-import { PermissionKey, Ticket, TicketStatus } from "@/types";
+import { PermissionKey, Ticket } from "@/types";
 import { useInvalidateTicket } from "./useInvalidateTicket";
 
 export function HeaderCard({ ticket }: { ticket: Ticket }) {
@@ -70,9 +70,10 @@ export function HeaderCard({ ticket }: { ticket: Ticket }) {
                   <ArchiveRestore className="h-4 w-4" /> Desarquivar
                 </Button>
               ) : (
-                // Só pode arquivar ticket já Resolvido ou Cancelado — nada em
-                // andamento deveria sumir do fluxo ativo do Kanban.
-                (ticket.status === TicketStatus.RESOLVED || ticket.status === TicketStatus.CANCELLED) && (
+                // Só pode arquivar ticket já numa coluna terminal (isDone ou
+                // isCancelled) — nada em andamento deveria sumir do fluxo
+                // ativo do Kanban.
+                (ticket.column?.isDone || ticket.column?.isCancelled) && (
                   <Button size="sm" variant="outline" onClick={handleArchive}>
                     <Archive className="h-4 w-4" /> Arquivar
                   </Button>

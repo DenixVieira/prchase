@@ -1,12 +1,10 @@
 import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
-import { Ticket, TicketStatus } from "@/types";
+import { BoardColumn as BoardColumnType, Ticket } from "@/types";
 import { TicketCard } from "./TicketCard";
 
 interface KanbanColumnProps {
-  status: TicketStatus;
-  label: string;
-  accent: string;
+  column: BoardColumnType;
   tickets: Ticket[];
   /** Total real desta coluna no banco — quando maior que tickets.length, a coluna foi cortada pelo teto por página. */
   total?: number;
@@ -14,17 +12,18 @@ interface KanbanColumnProps {
   draggable: boolean;
 }
 
-export function KanbanColumn({ status, label, accent, tickets, total, onLoadMore, draggable }: KanbanColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: status });
+export function KanbanColumn({ column, tickets, total, onLoadMore, draggable }: KanbanColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const hasMore = typeof total === "number" && total > tickets.length;
 
   return (
     <div
       ref={setNodeRef}
-      className={`flex w-72 shrink-0 flex-col rounded-lg border-t-4 bg-muted/40 ${accent} ${isOver ? "ring-2 ring-primary/50" : ""}`}
+      className={`flex w-72 shrink-0 flex-col rounded-lg border-t-4 bg-muted/40 ${isOver ? "ring-2 ring-primary/50" : ""}`}
+      style={{ borderTopColor: column.color }}
     >
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-sm font-semibold">{label}</span>
+        <span className="text-sm font-semibold">{column.name}</span>
         <span className="text-xs text-muted-foreground bg-background rounded-full px-2 py-0.5">
           {hasMore ? `${tickets.length}/${total}` : tickets.length}
         </span>

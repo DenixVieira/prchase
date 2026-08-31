@@ -1,4 +1,4 @@
-import { ShieldCheck, Trash2, Globe2 } from "lucide-react";
+import { ShieldCheck, Trash2, Globe2, Kanban } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,10 @@ interface DepartmentCardProps {
   department: Department;
   onManagePermissions: () => void;
   onManageOrganizations: () => void;
+  onManageBoard: () => void;
 }
 
-export function DepartmentCard({ department, onManagePermissions, onManageOrganizations }: DepartmentCardProps) {
+export function DepartmentCard({ department, onManagePermissions, onManageOrganizations, onManageBoard }: DepartmentCardProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const { data: groups } = useQuery({ queryKey: ["department-groups"], queryFn: () => departmentGroupsService.list() });
@@ -63,8 +64,8 @@ export function DepartmentCard({ department, onManagePermissions, onManageOrgani
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col gap-0.5">
+        <div className="flex items-center justify-between flex-col">
+          <div className="flex flex-wrap gap-0.5">
             <span className="text-xs text-muted-foreground">{(department.permissions ?? []).length} permissões concedidas</span>
             <span className="text-xs text-muted-foreground">
               {department.hasFullOrganizationAccess
@@ -80,6 +81,9 @@ export function DepartmentCard({ department, onManagePermissions, onManageOrgani
             </Button>
             <Button variant="outline" size="sm" onClick={onManageOrganizations}>
               <Globe2 className="h-4 w-4" /> Organizações
+            </Button>
+            <Button variant="outline" size="sm" onClick={onManageBoard}>
+              <Kanban className="h-4 w-4" /> Board
             </Button>
             <ConfirmDialog
               trigger={<Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive" /></Button>}

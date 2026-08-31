@@ -1,16 +1,31 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+/**
+ * Schema completo do banco, gerado a partir das entidades atuais contra um
+ * banco vazio — substitui as 13 migrations incrementais que existiam antes
+ * (0000 a 0012) por uma única migration "cria tudo do zero". As etapas
+ * transitórias que só faziam sentido em cima de dados já existentes (ex.:
+ * coluna nullable + backfill + NOT NULL do "column_id" dos tickets, troca de
+ * enum via RENAME+CREATE+CAST+DROP) somem naturalmente aqui: partindo de um
+ * banco vazio, já nasce na forma final.
+ *
+ * Importante: esta migration assume um banco VAZIO. Um banco que já rodou
+ * qualquer uma das migrations antigas vai falhar aqui (tabelas/tipos já
+ * existem) — precisa ser recriado do zero antes de aplicar esta.
+ */
 export class InitialSchema1700000000000 implements MigrationInterface {
     name = 'InitialSchema1700000000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
         await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
-        await queryRunner.query(`CREATE TYPE "public"."permissions_key_enum" AS ENUM('CREATE_PURCHASE_REQUEST', 'EDIT_PURCHASE_REQUEST', 'CANCEL_PURCHASE_REQUEST', 'VIEW_PURCHASE_REQUEST', 'APPROVE_PURCHASE_REQUEST', 'MOVE_TICKET', 'RESOLVE_TICKET', 'CANCEL_TICKET', 'DELETE_TICKET', 'COMMENT_TICKET', 'ATTACH_FILES', 'VIEW_TICKET', 'VIEW_ARCHIVED_TICKETS', 'EXPORT_INVOICES', 'MANAGE_USERS', 'MANAGE_DEPARTMENTS', 'MANAGE_SETTINGS', 'SYSTEM_ADMIN')`);
+        await queryRunner.query(`CREATE TYPE "public"."permissions_key_enum" AS ENUM('CREATE_PURCHASE_REQUEST', 'EDIT_PURCHASE_REQUEST', 'CANCEL_PURCHASE_REQUEST', 'VIEW_PURCHASE_REQUEST', 'APPROVE_PURCHASE_REQUEST', 'MOVE_TICKET', 'RESOLVE_TICKET', 'CANCEL_TICKET', 'DELETE_TICKET', 'COMMENT_TICKET', 'ATTACH_FILES', 'VIEW_TICKET', 'VIEW_ARCHIVED_TICKETS', 'EXPORT_INVOICES', 'CREATE_TAG', 'VIEW_DEVICE', 'CREATE_DEVICE', 'EDIT_DEVICE', 'DELETE_DEVICE', 'REGISTER_DEVICE_MAINTENANCE', 'MANAGE_USERS', 'MANAGE_DEPARTMENTS', 'MANAGE_SETTINGS', 'SYSTEM_ADMIN', 'MANAGE_REQUEST_TYPES', 'CREATE_REQUEST', 'VIEW_DASHBOARD')`);
         await queryRunner.query(`CREATE TABLE "permissions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "key" "public"."permissions_key_enum" NOT NULL, "description" character varying(255) NOT NULL, CONSTRAINT "UQ_017943867ed5ceef9c03edd9745" UNIQUE ("key"), CONSTRAINT "PK_920331560282b8bd21bb02290df" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "department_permissions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "department_id" uuid NOT NULL, "permission_id" uuid NOT NULL, "granted" boolean NOT NULL DEFAULT true, CONSTRAINT "UQ_251eca408083656bd32934072fc" UNIQUE ("department_id", "permission_id"), CONSTRAINT "PK_6b87d692008c3080116a529f08b" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "organizations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(150) NOT NULL, "description" text, "isActive" boolean NOT NULL DEFAULT true, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_9b7ca6d30b94fef571cff876884" UNIQUE ("name"), CONSTRAINT "PK_6b031fcd0863e3f6b44230163f9" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE TABLE "departments" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(150) NOT NULL, "description" text, "responsible_user_id" uuid, "isActive" boolean NOT NULL DEFAULT true, "home_organization_id" uuid, "hasFullOrganizationAccess" boolean NOT NULL DEFAULT false, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_8681da666ad9699d568b3e91064" UNIQUE ("name"), CONSTRAINT "PK_839517a681a86bb84cbcc6a1e9d" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "department_groups" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(150) NOT NULL, "organization_id" uuid, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_0d9eacdfd27d876f2b6254ff737" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_9be501aba6d4a015832295fe49" ON "department_groups" ("name") `);
+        await queryRunner.query(`CREATE TABLE "departments" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(150) NOT NULL, "description" text, "responsible_user_id" uuid, "isActive" boolean NOT NULL DEFAULT true, "home_organization_id" uuid, "hasFullOrganizationAccess" boolean NOT NULL DEFAULT false, "department_group_id" uuid, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_8681da666ad9699d568b3e91064" UNIQUE ("name"), CONSTRAINT "PK_839517a681a86bb84cbcc6a1e9d" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TYPE "public"."users_notificationpreference_enum" AS ENUM('EMAIL_ONLY', 'INTERNAL_ONLY', 'BOTH')`);
         await queryRunner.query(`CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(150) NOT NULL, "login" character varying(100) NOT NULL, "email" character varying(150) NOT NULL, "passwordHash" character varying(255) NOT NULL, "department_id" uuid, "isActive" boolean NOT NULL DEFAULT true, "isAdmin" boolean NOT NULL DEFAULT false, "notificationPreference" "public"."users_notificationpreference_enum" NOT NULL DEFAULT 'BOTH', "mutedNotificationTypes" text array NOT NULL DEFAULT '{}', "lastLoginAt" TIMESTAMP WITH TIME ZONE, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_2d443082eccd5198f95f2a36e2" ON "users" ("login") `);
@@ -18,21 +33,40 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "refresh_tokens" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "tokenHash" character varying(255) NOT NULL, "expiresAt" TIMESTAMP WITH TIME ZONE NOT NULL, "revoked" boolean NOT NULL DEFAULT false, "ipAddress" character varying(60), "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_7d8bee0204106019488c4c50ffa" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TYPE "public"."purchase_approvals_decision_enum" AS ENUM('APPROVED', 'REJECTED')`);
         await queryRunner.query(`CREATE TABLE "purchase_approvals" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "purchase_request_id" uuid NOT NULL, "approver_id" uuid NOT NULL, "approver_department_id" uuid NOT NULL, "decision" "public"."purchase_approvals_decision_enum" NOT NULL, "reason" text, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_e5b4932af67ddd238939482fd20" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TYPE "public"."request_fields_type_enum" AS ENUM('TEXT', 'TEXTAREA', 'NUMBER', 'DATE', 'SELECT', 'MULTISELECT', 'CHECKBOX', 'FILE')`);
+        await queryRunner.query(`CREATE TABLE "request_fields" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "request_type_id" uuid NOT NULL, "label" character varying(150) NOT NULL, "key" character varying(100) NOT NULL, "type" "public"."request_fields_type_enum" NOT NULL, "required" boolean NOT NULL DEFAULT false, "options" jsonb, "help_text" character varying(255), "order" integer NOT NULL DEFAULT '0', "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_25c2c9c9175ba48e68f76535e35" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_08a188e4a69d5855aabcfc77e9" ON "request_fields" ("request_type_id") `);
+        await queryRunner.query(`CREATE TYPE "public"."request_types_source_kind_enum" AS ENUM('DYNAMIC', 'PURCHASE_REQUEST')`);
+        await queryRunner.query(`CREATE TABLE "request_types" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(150) NOT NULL, "description" text, "department_id" uuid, "icon" character varying(60), "source_kind" "public"."request_types_source_kind_enum" NOT NULL DEFAULT 'DYNAMIC', "is_built_in" boolean NOT NULL DEFAULT false, "is_active" boolean NOT NULL DEFAULT true, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_795c261c2ebf6beb3f417acd40b" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b40c6248bb3b9d0bd63986d2dc" ON "request_types" ("name") `);
+        await queryRunner.query(`CREATE TABLE "request_submissions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "request_type_id" uuid NOT NULL, "requester_id" uuid NOT NULL, "department_id" uuid NOT NULL, "organization_id" uuid, "data" jsonb NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_e28062c03c3110decac1599ae75" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_b32650c28f0b14e5f33311b954" ON "request_submissions" ("request_type_id") `);
         await queryRunner.query(`CREATE TABLE "comments" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "ticket_id" uuid NOT NULL, "author_id" uuid NOT NULL, "content" text NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_8bf68bc960f2b69e818bdb90dcb" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_be8180d9b44a05e449b85f5b77" ON "comments" ("ticket_id") `);
         await queryRunner.query(`CREATE TABLE "followers" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "ticket_id" uuid NOT NULL, "user_id" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_e74ad4ae873d059b35562d8210e" UNIQUE ("ticket_id", "user_id"), CONSTRAINT "PK_c90cfc5b18edd29bd15ba95c1a4" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE TYPE "public"."tickets_status_enum" AS ENUM('PENDING', 'IN_PROGRESS', 'RESOLVED', 'CANCELLED')`);
+        await queryRunner.query(`CREATE TABLE "tags" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(60) NOT NULL, "color" character varying(7) NOT NULL DEFAULT '#6366f1', "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_e7dc17249a1148a1970748eda99" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_d90243459a697eadb8ad56e909" ON "tags" ("name") `);
+        await queryRunner.query(`CREATE TABLE "boards" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "department_id" uuid NOT NULL, "name" character varying(150) NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "REL_b161c0cdba3621052d01e24ac2" UNIQUE ("department_id"), CONSTRAINT "PK_606923b0b068ef262dfdcd18f44" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b161c0cdba3621052d01e24ac2" ON "boards" ("department_id") `);
+        await queryRunner.query(`CREATE TABLE "board_columns" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "board_id" uuid NOT NULL, "name" character varying(60) NOT NULL, "color" character varying(7) NOT NULL DEFAULT '#94a3b8', "order" integer NOT NULL DEFAULT '0', "is_initial" boolean NOT NULL DEFAULT false, "is_done" boolean NOT NULL DEFAULT false, "is_cancelled" boolean NOT NULL DEFAULT false, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_e3da51ad65560ca495d3a621d32" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_55e6772f5b84a2fb358db47331" ON "board_columns" ("board_id") `);
         await queryRunner.query(`CREATE TYPE "public"."tickets_priority_enum" AS ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT')`);
-        await queryRunner.query(`CREATE TABLE "tickets" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "protocol" character varying(20) NOT NULL, "title" character varying(200) NOT NULL, "description" text NOT NULL, "purchase_request_id" uuid NOT NULL, "status" "public"."tickets_status_enum" NOT NULL DEFAULT 'PENDING', "priority" "public"."tickets_priority_enum" NOT NULL DEFAULT 'MEDIUM', "assignee_id" uuid, "department_id" uuid NOT NULL, "organization_id" uuid, "requester_id" uuid NOT NULL, "is_archived" boolean NOT NULL DEFAULT false, "archived_at" TIMESTAMP WITH TIME ZONE, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "REL_9c315b3cfb6020ce11d3708f69" UNIQUE ("purchase_request_id"), CONSTRAINT "PK_343bc942ae261cf7a1377f48fd0" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "tickets" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "protocol" character varying(20) NOT NULL, "title" character varying(200) NOT NULL, "description" text NOT NULL, "purchase_request_id" uuid, "request_submission_id" uuid, "request_type_id" uuid, "column_id" uuid NOT NULL, "priority" "public"."tickets_priority_enum" NOT NULL DEFAULT 'MEDIUM', "assignee_id" uuid, "department_id" uuid NOT NULL, "organization_id" uuid, "requester_id" uuid NOT NULL, "is_archived" boolean NOT NULL DEFAULT false, "archived_at" TIMESTAMP WITH TIME ZONE, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "REL_9c315b3cfb6020ce11d3708f69" UNIQUE ("purchase_request_id"), CONSTRAINT "REL_2cb40040fd6a980b4b829fd8d8" UNIQUE ("request_submission_id"), CONSTRAINT "PK_343bc942ae261cf7a1377f48fd0" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_e4b65de8df5eb74ee4734fdf9b" ON "tickets" ("protocol") `);
-        await queryRunner.query(`CREATE TABLE "attachments" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "ticket_id" uuid, "purchase_request_id" uuid, "originalName" character varying(255) NOT NULL, "physicalName" character varying(255) NOT NULL, "path" text NOT NULL, "mimeType" character varying(120) NOT NULL, "size" bigint NOT NULL, "is_invoice_note" boolean NOT NULL DEFAULT false, "uploaded_by_id" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_5e1f050bcff31e3084a1d662412" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_7fc963bf6a97945d0036a554ea" ON "tickets" ("column_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_fb1d03aa5fffa0e5ca41873a00" ON "tickets" ("department_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_613ef43a793c628ad7b22981f3" ON "tickets" ("organization_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_bd69ef1f6e3bda02b710ac17f4" ON "tickets" ("is_archived") `);
+        await queryRunner.query(`CREATE TABLE "attachments" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "ticket_id" uuid, "purchase_request_id" uuid, "originalName" character varying(255) NOT NULL, "physicalName" character varying(255) NOT NULL, "path" text NOT NULL, "mimeType" character varying(120) NOT NULL, "size" bigint NOT NULL, "is_invoice_note" boolean NOT NULL DEFAULT false, "due_date" date, "source_field_key" character varying(100), "uploaded_by_id" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_5e1f050bcff31e3084a1d662412" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_73d871f247ffebda5dc3f0df8a" ON "attachments" ("ticket_id") `);
         await queryRunner.query(`CREATE TYPE "public"."purchase_requests_priority_enum" AS ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT')`);
         await queryRunner.query(`CREATE TYPE "public"."purchase_requests_status_enum" AS ENUM('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED')`);
         await queryRunner.query(`CREATE TABLE "purchase_requests" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "number" character varying(20) NOT NULL, "department_id" uuid NOT NULL, "organization_id" uuid, "requester_id" uuid NOT NULL, "costCenter" character varying(100) NOT NULL, "supplier" character varying(150) NOT NULL, "category" character varying(100) NOT NULL, "description" text NOT NULL, "justification" text NOT NULL, "estimatedValue" numeric(14,2) NOT NULL, "priority" "public"."purchase_requests_priority_enum" NOT NULL DEFAULT 'MEDIUM', "observations" text, "status" "public"."purchase_requests_status_enum" NOT NULL DEFAULT 'DRAFT', "approved_at" TIMESTAMP WITH TIME ZONE, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_f3c5a8ff7bd4338f4c860925c8f" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE UNIQUE INDEX "IDX_e5cb0c449b139de4c5cf8949c5" ON "purchase_requests" ("number") `);
-        await queryRunner.query(`CREATE TYPE "public"."notifications_type_enum" AS ENUM('NEW_TICKET', 'NEW_COMMENT', 'NEW_ATTACHMENT', 'NEW_INVOICE_NOTE', 'TICKET_MOVED', 'TICKET_RESOLVED', 'TICKET_CANCELLED', 'TICKET_REOPENED', 'NEW_FOLLOWER', 'REQUEST_APPROVED', 'REQUEST_REJECTED', 'REQUEST_PENDING_APPROVAL')`);
+        await queryRunner.query(`CREATE TYPE "public"."notifications_type_enum" AS ENUM('NEW_TICKET', 'NEW_COMMENT', 'NEW_ATTACHMENT', 'NEW_INVOICE_NOTE', 'TICKET_MOVED', 'TICKET_RESOLVED', 'TICKET_CANCELLED', 'TICKET_REOPENED', 'NEW_FOLLOWER', 'MENTIONED_IN_COMMENT', 'REQUEST_APPROVED', 'REQUEST_REJECTED', 'REQUEST_PENDING_APPROVAL')`);
         await queryRunner.query(`CREATE TABLE "notifications" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "type" "public"."notifications_type_enum" NOT NULL, "title" character varying(200) NOT NULL, "message" text NOT NULL, "link" character varying(255), "isRead" boolean NOT NULL DEFAULT false, "related_ticket_id" uuid, "related_purchase_request_id" uuid, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_6a72c3c0f683f6462415e653c3a" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_9a8a82462cab47c73d25f49261" ON "notifications" ("user_id") `);
-        await queryRunner.query(`CREATE TYPE "public"."history_action_enum" AS ENUM('CREATED', 'COMMENTED', 'ATTACHMENT_ADDED', 'ATTACHMENT_REMOVED', 'PRIORITY_CHANGED', 'STATUS_CHANGED', 'ASSIGNEE_CHANGED', 'CANCELLED', 'REOPENED', 'RESOLVED', 'APPROVED', 'REJECTED', 'FOLLOWER_ADDED', 'FOLLOWER_REMOVED', 'SUBMITTED_FOR_APPROVAL', 'ARCHIVED', 'UNARCHIVED')`);
+        await queryRunner.query(`CREATE TYPE "public"."history_action_enum" AS ENUM('CREATED', 'COMMENTED', 'ATTACHMENT_ADDED', 'ATTACHMENT_REMOVED', 'PRIORITY_CHANGED', 'STATUS_CHANGED', 'ASSIGNEE_CHANGED', 'CANCELLED', 'REOPENED', 'RESOLVED', 'APPROVED', 'REJECTED', 'FOLLOWER_ADDED', 'FOLLOWER_REMOVED', 'SUBMITTED_FOR_APPROVAL', 'ARCHIVED', 'UNARCHIVED', 'TAG_ADDED', 'TAG_REMOVED')`);
         await queryRunner.query(`CREATE TABLE "history" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "ticket_id" uuid, "purchase_request_id" uuid, "user_id" uuid NOT NULL, "action" "public"."history_action_enum" NOT NULL, "description" text NOT NULL, "metadata" jsonb, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_9384942edf4804b38ca0ee51416" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_4b93183a93e6df9ed355ab6edb" ON "history" ("ticket_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_b8964b32622f7b357a44e40a2c" ON "history" ("purchase_request_id") `);
@@ -40,23 +74,54 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "audit_logs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid, "action" "public"."audit_logs_action_enum" NOT NULL, "entity" character varying(100) NOT NULL, "entityId" character varying(100), "ipAddress" character varying(60), "metadata" jsonb, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_1bb179d048bbc581caa3b013439" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_bd2726fd31b35443f2245b93ba" ON "audit_logs" ("user_id") `);
         await queryRunner.query(`CREATE TABLE "settings" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "key" character varying(100) NOT NULL, "value" jsonb NOT NULL, "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_c8639b7626fa94ba8265628f214" UNIQUE ("key"), CONSTRAINT "PK_0669fe20e252eb692bf4d344975" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "device_attachments" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "device_id" uuid NOT NULL, "originalName" character varying(255) NOT NULL, "physicalName" character varying(255) NOT NULL, "path" text NOT NULL, "mimeType" character varying(120) NOT NULL, "size" bigint NOT NULL, "uploaded_by_id" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_77dc9df4f1e17ac0cc6a19eac85" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_a2e0c65ee17b1b2654f2561f23" ON "device_attachments" ("device_id") `);
+        await queryRunner.query(`CREATE TABLE "device_maintenances" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "device_id" uuid NOT NULL, "sent_date" date NOT NULL, "return_date" date, "reason" text NOT NULL, "registered_by_id" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_8150606d7d6f6a27ce393aae333" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_05cf96725974eb512c1edbb925" ON "device_maintenances" ("device_id") `);
+        await queryRunner.query(`CREATE TABLE "devices" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying(150), "serial_number" character varying(120) NOT NULL, "mac" character varying(40), "model" character varying(120) NOT NULL, "brand" character varying(120) NOT NULL, "purchase_date" date NOT NULL, "warranty_expiration" date NOT NULL, "organization_id" uuid NOT NULL, "department_id" uuid NOT NULL, "assigned_to_name" character varying(150), "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_b1514758245c12daf43486dd1f0" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_cc9e89897e336172fd06367735" ON "devices" ("serial_number") `);
+        await queryRunner.query(`CREATE INDEX "IDX_21dd4938e7012093f2b9db67f1" ON "devices" ("mac") `);
+        await queryRunner.query(`CREATE INDEX "IDX_3f8418d0a8ce1e08098d37c9b6" ON "devices" ("organization_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_d1a6a6ab446e4d5007e187da53" ON "devices" ("department_id") `);
         await queryRunner.query(`CREATE TABLE "department_organization_access" ("department_id" uuid NOT NULL, "organization_id" uuid NOT NULL, CONSTRAINT "PK_ddaf7ebed0444649a4cd9bd3a7c" PRIMARY KEY ("department_id", "organization_id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_40f1bea59da5fcb6c50f1e5f99" ON "department_organization_access" ("department_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_f7b29609f1fd05c90f6f88a2c0" ON "department_organization_access" ("organization_id") `);
+        await queryRunner.query(`CREATE TABLE "request_type_organizations" ("request_type_id" uuid NOT NULL, "organization_id" uuid NOT NULL, CONSTRAINT "PK_b17e296d2384e6a96637e236f9f" PRIMARY KEY ("request_type_id", "organization_id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_5c5c06525725f3ab09b9588dab" ON "request_type_organizations" ("request_type_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_390531df321ce8b8afe5b57bec" ON "request_type_organizations" ("organization_id") `);
+        await queryRunner.query(`CREATE TABLE "request_type_departments" ("request_type_id" uuid NOT NULL, "department_id" uuid NOT NULL, CONSTRAINT "PK_00856ee10f2f2e3343c83668dd5" PRIMARY KEY ("request_type_id", "department_id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_66e3b78c30e825857845ecc35a" ON "request_type_departments" ("request_type_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_1d6598a4102a5903de3e86d945" ON "request_type_departments" ("department_id") `);
+        await queryRunner.query(`CREATE TABLE "ticket_tags" ("ticket_id" uuid NOT NULL, "tag_id" uuid NOT NULL, CONSTRAINT "PK_61ad5ce131d1032cd26448d073e" PRIMARY KEY ("ticket_id", "tag_id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_e834a1960b1abc5822d5055b82" ON "ticket_tags" ("ticket_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f5cb86966f6eb9f24f011992d3" ON "ticket_tags" ("tag_id") `);
         await queryRunner.query(`ALTER TABLE "department_permissions" ADD CONSTRAINT "FK_6a604945ba103f0e74f996cdc3b" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "department_permissions" ADD CONSTRAINT "FK_39e312446f4735d5bda8497ed13" FOREIGN KEY ("permission_id") REFERENCES "permissions"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "department_groups" ADD CONSTRAINT "FK_a9bf5332495bddc06b6a5935451" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "departments" ADD CONSTRAINT "FK_a37d72ae26acb6f86512f1b8681" FOREIGN KEY ("responsible_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "departments" ADD CONSTRAINT "FK_658d84fc3f80a1ed80c91b212d5" FOREIGN KEY ("home_organization_id") REFERENCES "organizations"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "departments" ADD CONSTRAINT "FK_c0b5861ba3ed6044c1ae5d13cf5" FOREIGN KEY ("department_group_id") REFERENCES "department_groups"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "users" ADD CONSTRAINT "FK_0921d1972cf861d568f5271cd85" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "refresh_tokens" ADD CONSTRAINT "FK_3ddc983c5f7bcf132fd8732c3f4" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "purchase_approvals" ADD CONSTRAINT "FK_2bd102ea7d9b517542a71f5b3f3" FOREIGN KEY ("purchase_request_id") REFERENCES "purchase_requests"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "purchase_approvals" ADD CONSTRAINT "FK_154209b80628e3edf9d9fc54b63" FOREIGN KEY ("approver_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "purchase_approvals" ADD CONSTRAINT "FK_3f633be84c48a451d0d487d4598" FOREIGN KEY ("approver_department_id") REFERENCES "departments"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "request_fields" ADD CONSTRAINT "FK_08a188e4a69d5855aabcfc77e95" FOREIGN KEY ("request_type_id") REFERENCES "request_types"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "request_types" ADD CONSTRAINT "FK_048cbc878f49fca2b03253ed4a1" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" ADD CONSTRAINT "FK_b32650c28f0b14e5f33311b954d" FOREIGN KEY ("request_type_id") REFERENCES "request_types"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" ADD CONSTRAINT "FK_20447c4861904222f37e2d10b8a" FOREIGN KEY ("requester_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" ADD CONSTRAINT "FK_24c44e73d35cc817f43159d52e6" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" ADD CONSTRAINT "FK_71c049e03903059e1116449ccd1" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "comments" ADD CONSTRAINT "FK_be8180d9b44a05e449b85f5b773" FOREIGN KEY ("ticket_id") REFERENCES "tickets"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "comments" ADD CONSTRAINT "FK_e6d38899c31997c45d128a8973b" FOREIGN KEY ("author_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "followers" ADD CONSTRAINT "FK_2a5cd2b465bfffd58cc2f1c5f2c" FOREIGN KEY ("ticket_id") REFERENCES "tickets"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "followers" ADD CONSTRAINT "FK_d6e6e6be11ffefd40e60bffbebd" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "boards" ADD CONSTRAINT "FK_b161c0cdba3621052d01e24ac26" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "board_columns" ADD CONSTRAINT "FK_55e6772f5b84a2fb358db473313" FOREIGN KEY ("board_id") REFERENCES "boards"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_9c315b3cfb6020ce11d3708f69a" FOREIGN KEY ("purchase_request_id") REFERENCES "purchase_requests"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_2cb40040fd6a980b4b829fd8d87" FOREIGN KEY ("request_submission_id") REFERENCES "request_submissions"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_19823e7e6b8af62d25e49e25602" FOREIGN KEY ("request_type_id") REFERENCES "request_types"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_7fc963bf6a97945d0036a554eae" FOREIGN KEY ("column_id") REFERENCES "board_columns"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_dff6e2b44c9b5e177114588772f" FOREIGN KEY ("assignee_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_fb1d03aa5fffa0e5ca41873a00a" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "tickets" ADD CONSTRAINT "FK_613ef43a793c628ad7b22981f33" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
@@ -70,13 +135,37 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "notifications" ADD CONSTRAINT "FK_9a8a82462cab47c73d25f49261f" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "history" ADD CONSTRAINT "FK_ea92daa642af67e2a924a5547d5" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "audit_logs" ADD CONSTRAINT "FK_bd2726fd31b35443f2245b93ba0" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "device_attachments" ADD CONSTRAINT "FK_a2e0c65ee17b1b2654f2561f23e" FOREIGN KEY ("device_id") REFERENCES "devices"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "device_attachments" ADD CONSTRAINT "FK_17fb3817d14497eeda533d10492" FOREIGN KEY ("uploaded_by_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "device_maintenances" ADD CONSTRAINT "FK_05cf96725974eb512c1edbb9250" FOREIGN KEY ("device_id") REFERENCES "devices"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "device_maintenances" ADD CONSTRAINT "FK_2a113313cdddb27f25519f76081" FOREIGN KEY ("registered_by_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "devices" ADD CONSTRAINT "FK_3f8418d0a8ce1e08098d37c9b67" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "devices" ADD CONSTRAINT "FK_d1a6a6ab446e4d5007e187da53b" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "department_organization_access" ADD CONSTRAINT "FK_40f1bea59da5fcb6c50f1e5f997" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
         await queryRunner.query(`ALTER TABLE "department_organization_access" ADD CONSTRAINT "FK_f7b29609f1fd05c90f6f88a2c06" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "request_type_organizations" ADD CONSTRAINT "FK_5c5c06525725f3ab09b9588dab4" FOREIGN KEY ("request_type_id") REFERENCES "request_types"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "request_type_organizations" ADD CONSTRAINT "FK_390531df321ce8b8afe5b57bec2" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "request_type_departments" ADD CONSTRAINT "FK_66e3b78c30e825857845ecc35af" FOREIGN KEY ("request_type_id") REFERENCES "request_types"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "request_type_departments" ADD CONSTRAINT "FK_1d6598a4102a5903de3e86d9450" FOREIGN KEY ("department_id") REFERENCES "departments"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "ticket_tags" ADD CONSTRAINT "FK_e834a1960b1abc5822d5055b82e" FOREIGN KEY ("ticket_id") REFERENCES "tickets"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
+        await queryRunner.query(`ALTER TABLE "ticket_tags" ADD CONSTRAINT "FK_f5cb86966f6eb9f24f011992d38" FOREIGN KEY ("tag_id") REFERENCES "tags"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "ticket_tags" DROP CONSTRAINT "FK_f5cb86966f6eb9f24f011992d38"`);
+        await queryRunner.query(`ALTER TABLE "ticket_tags" DROP CONSTRAINT "FK_e834a1960b1abc5822d5055b82e"`);
+        await queryRunner.query(`ALTER TABLE "request_type_departments" DROP CONSTRAINT "FK_1d6598a4102a5903de3e86d9450"`);
+        await queryRunner.query(`ALTER TABLE "request_type_departments" DROP CONSTRAINT "FK_66e3b78c30e825857845ecc35af"`);
+        await queryRunner.query(`ALTER TABLE "request_type_organizations" DROP CONSTRAINT "FK_390531df321ce8b8afe5b57bec2"`);
+        await queryRunner.query(`ALTER TABLE "request_type_organizations" DROP CONSTRAINT "FK_5c5c06525725f3ab09b9588dab4"`);
         await queryRunner.query(`ALTER TABLE "department_organization_access" DROP CONSTRAINT "FK_f7b29609f1fd05c90f6f88a2c06"`);
         await queryRunner.query(`ALTER TABLE "department_organization_access" DROP CONSTRAINT "FK_40f1bea59da5fcb6c50f1e5f997"`);
+        await queryRunner.query(`ALTER TABLE "devices" DROP CONSTRAINT "FK_d1a6a6ab446e4d5007e187da53b"`);
+        await queryRunner.query(`ALTER TABLE "devices" DROP CONSTRAINT "FK_3f8418d0a8ce1e08098d37c9b67"`);
+        await queryRunner.query(`ALTER TABLE "device_maintenances" DROP CONSTRAINT "FK_2a113313cdddb27f25519f76081"`);
+        await queryRunner.query(`ALTER TABLE "device_maintenances" DROP CONSTRAINT "FK_05cf96725974eb512c1edbb9250"`);
+        await queryRunner.query(`ALTER TABLE "device_attachments" DROP CONSTRAINT "FK_17fb3817d14497eeda533d10492"`);
+        await queryRunner.query(`ALTER TABLE "device_attachments" DROP CONSTRAINT "FK_a2e0c65ee17b1b2654f2561f23e"`);
         await queryRunner.query(`ALTER TABLE "audit_logs" DROP CONSTRAINT "FK_bd2726fd31b35443f2245b93ba0"`);
         await queryRunner.query(`ALTER TABLE "history" DROP CONSTRAINT "FK_ea92daa642af67e2a924a5547d5"`);
         await queryRunner.query(`ALTER TABLE "notifications" DROP CONSTRAINT "FK_9a8a82462cab47c73d25f49261f"`);
@@ -90,23 +179,54 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "tickets" DROP CONSTRAINT "FK_613ef43a793c628ad7b22981f33"`);
         await queryRunner.query(`ALTER TABLE "tickets" DROP CONSTRAINT "FK_fb1d03aa5fffa0e5ca41873a00a"`);
         await queryRunner.query(`ALTER TABLE "tickets" DROP CONSTRAINT "FK_dff6e2b44c9b5e177114588772f"`);
+        await queryRunner.query(`ALTER TABLE "tickets" DROP CONSTRAINT "FK_7fc963bf6a97945d0036a554eae"`);
+        await queryRunner.query(`ALTER TABLE "tickets" DROP CONSTRAINT "FK_19823e7e6b8af62d25e49e25602"`);
+        await queryRunner.query(`ALTER TABLE "tickets" DROP CONSTRAINT "FK_2cb40040fd6a980b4b829fd8d87"`);
         await queryRunner.query(`ALTER TABLE "tickets" DROP CONSTRAINT "FK_9c315b3cfb6020ce11d3708f69a"`);
+        await queryRunner.query(`ALTER TABLE "board_columns" DROP CONSTRAINT "FK_55e6772f5b84a2fb358db473313"`);
+        await queryRunner.query(`ALTER TABLE "boards" DROP CONSTRAINT "FK_b161c0cdba3621052d01e24ac26"`);
         await queryRunner.query(`ALTER TABLE "followers" DROP CONSTRAINT "FK_d6e6e6be11ffefd40e60bffbebd"`);
         await queryRunner.query(`ALTER TABLE "followers" DROP CONSTRAINT "FK_2a5cd2b465bfffd58cc2f1c5f2c"`);
         await queryRunner.query(`ALTER TABLE "comments" DROP CONSTRAINT "FK_e6d38899c31997c45d128a8973b"`);
         await queryRunner.query(`ALTER TABLE "comments" DROP CONSTRAINT "FK_be8180d9b44a05e449b85f5b773"`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" DROP CONSTRAINT "FK_71c049e03903059e1116449ccd1"`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" DROP CONSTRAINT "FK_24c44e73d35cc817f43159d52e6"`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" DROP CONSTRAINT "FK_20447c4861904222f37e2d10b8a"`);
+        await queryRunner.query(`ALTER TABLE "request_submissions" DROP CONSTRAINT "FK_b32650c28f0b14e5f33311b954d"`);
+        await queryRunner.query(`ALTER TABLE "request_types" DROP CONSTRAINT "FK_048cbc878f49fca2b03253ed4a1"`);
+        await queryRunner.query(`ALTER TABLE "request_fields" DROP CONSTRAINT "FK_08a188e4a69d5855aabcfc77e95"`);
         await queryRunner.query(`ALTER TABLE "purchase_approvals" DROP CONSTRAINT "FK_3f633be84c48a451d0d487d4598"`);
         await queryRunner.query(`ALTER TABLE "purchase_approvals" DROP CONSTRAINT "FK_154209b80628e3edf9d9fc54b63"`);
         await queryRunner.query(`ALTER TABLE "purchase_approvals" DROP CONSTRAINT "FK_2bd102ea7d9b517542a71f5b3f3"`);
         await queryRunner.query(`ALTER TABLE "refresh_tokens" DROP CONSTRAINT "FK_3ddc983c5f7bcf132fd8732c3f4"`);
         await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT "FK_0921d1972cf861d568f5271cd85"`);
+        await queryRunner.query(`ALTER TABLE "departments" DROP CONSTRAINT "FK_c0b5861ba3ed6044c1ae5d13cf5"`);
         await queryRunner.query(`ALTER TABLE "departments" DROP CONSTRAINT "FK_658d84fc3f80a1ed80c91b212d5"`);
         await queryRunner.query(`ALTER TABLE "departments" DROP CONSTRAINT "FK_a37d72ae26acb6f86512f1b8681"`);
+        await queryRunner.query(`ALTER TABLE "department_groups" DROP CONSTRAINT "FK_a9bf5332495bddc06b6a5935451"`);
         await queryRunner.query(`ALTER TABLE "department_permissions" DROP CONSTRAINT "FK_39e312446f4735d5bda8497ed13"`);
         await queryRunner.query(`ALTER TABLE "department_permissions" DROP CONSTRAINT "FK_6a604945ba103f0e74f996cdc3b"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_f5cb86966f6eb9f24f011992d3"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e834a1960b1abc5822d5055b82"`);
+        await queryRunner.query(`DROP TABLE "ticket_tags"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_1d6598a4102a5903de3e86d945"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_66e3b78c30e825857845ecc35a"`);
+        await queryRunner.query(`DROP TABLE "request_type_departments"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_390531df321ce8b8afe5b57bec"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_5c5c06525725f3ab09b9588dab"`);
+        await queryRunner.query(`DROP TABLE "request_type_organizations"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_f7b29609f1fd05c90f6f88a2c0"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_40f1bea59da5fcb6c50f1e5f99"`);
         await queryRunner.query(`DROP TABLE "department_organization_access"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d1a6a6ab446e4d5007e187da53"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_3f8418d0a8ce1e08098d37c9b6"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_21dd4938e7012093f2b9db67f1"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_cc9e89897e336172fd06367735"`);
+        await queryRunner.query(`DROP TABLE "devices"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_05cf96725974eb512c1edbb925"`);
+        await queryRunner.query(`DROP TABLE "device_maintenances"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_a2e0c65ee17b1b2654f2561f23"`);
+        await queryRunner.query(`DROP TABLE "device_attachments"`);
         await queryRunner.query(`DROP TABLE "settings"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_bd2726fd31b35443f2245b93ba"`);
         await queryRunner.query(`DROP TABLE "audit_logs"`);
@@ -122,13 +242,32 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE "purchase_requests"`);
         await queryRunner.query(`DROP TYPE "public"."purchase_requests_status_enum"`);
         await queryRunner.query(`DROP TYPE "public"."purchase_requests_priority_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_73d871f247ffebda5dc3f0df8a"`);
         await queryRunner.query(`DROP TABLE "attachments"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_bd69ef1f6e3bda02b710ac17f4"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_613ef43a793c628ad7b22981f3"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_fb1d03aa5fffa0e5ca41873a00"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_7fc963bf6a97945d0036a554ea"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_e4b65de8df5eb74ee4734fdf9b"`);
         await queryRunner.query(`DROP TABLE "tickets"`);
         await queryRunner.query(`DROP TYPE "public"."tickets_priority_enum"`);
-        await queryRunner.query(`DROP TYPE "public"."tickets_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_55e6772f5b84a2fb358db47331"`);
+        await queryRunner.query(`DROP TABLE "board_columns"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b161c0cdba3621052d01e24ac2"`);
+        await queryRunner.query(`DROP TABLE "boards"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d90243459a697eadb8ad56e909"`);
+        await queryRunner.query(`DROP TABLE "tags"`);
         await queryRunner.query(`DROP TABLE "followers"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_be8180d9b44a05e449b85f5b77"`);
         await queryRunner.query(`DROP TABLE "comments"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b32650c28f0b14e5f33311b954"`);
+        await queryRunner.query(`DROP TABLE "request_submissions"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b40c6248bb3b9d0bd63986d2dc"`);
+        await queryRunner.query(`DROP TABLE "request_types"`);
+        await queryRunner.query(`DROP TYPE "public"."request_types_source_kind_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_08a188e4a69d5855aabcfc77e9"`);
+        await queryRunner.query(`DROP TABLE "request_fields"`);
+        await queryRunner.query(`DROP TYPE "public"."request_fields_type_enum"`);
         await queryRunner.query(`DROP TABLE "purchase_approvals"`);
         await queryRunner.query(`DROP TYPE "public"."purchase_approvals_decision_enum"`);
         await queryRunner.query(`DROP TABLE "refresh_tokens"`);
@@ -137,6 +276,8 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         await queryRunner.query(`DROP TABLE "users"`);
         await queryRunner.query(`DROP TYPE "public"."users_notificationpreference_enum"`);
         await queryRunner.query(`DROP TABLE "departments"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_9be501aba6d4a015832295fe49"`);
+        await queryRunner.query(`DROP TABLE "department_groups"`);
         await queryRunner.query(`DROP TABLE "organizations"`);
         await queryRunner.query(`DROP TABLE "department_permissions"`);
         await queryRunner.query(`DROP TABLE "permissions"`);
