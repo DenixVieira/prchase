@@ -179,10 +179,11 @@ export class TicketsService {
 
     const isPrivileged = await hasSystemAdminAccess(user);
     if (!isPrivileged) {
-      qb.andWhere("(t.departmentId = :userDepartmentId OR t.requesterId = :userId OR t.assigneeId = :userId)", {
-        userDepartmentId: user.departmentId ?? null,
-        userId: user.id,
-      });
+      qb.andWhere(
+        `(t.departmentId = :userDepartmentId OR t.requesterId = :userId OR t.assigneeId = :userId
+      OR EXISTS (SELECT 1 FROM followers f WHERE f.ticket_id = t.id AND f.user_id = :userId))`,
+        { userDepartmentId: user.departmentId ?? null, userId: user.id }
+      );
     }
 
     const canSeeArchived = isPrivileged || (await hasPermission(user, PermissionKey.VIEW_ARCHIVED_TICKETS));
@@ -227,6 +228,7 @@ export class TicketsService {
     if (user.departmentId && ticket.departmentId === user.departmentId) return;
     if (ticket.requesterId === user.id) return;
     if (ticket.assigneeId && ticket.assigneeId === user.id) return;
+    if (ticket.followers?.some((f) => f.userId === user.id)) return; // acompanhante também vê
     throw ApiError.forbidden("Você não tem acesso a tickets de outro departamento");
   }
 
